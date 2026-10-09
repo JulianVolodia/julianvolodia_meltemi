@@ -7,11 +7,13 @@
   "scripts": {
     "test": "node --test \"test/**/*.test.mjs\"",
     "serve": "node cli/serve.mjs",
-    "cli": "node cli/moldbox.mjs"
+    "cli": "node cli/moldbox.mjs",
+    "test:ui": "node test/ui-smoke.mjs"
   },
   "devDependencies": {
+    "fflate": "0.8.2",
     "manifold-3d": "3.5.3",
-    "three": "0.186.0",
-    "fflate": "0.8.2"
+    "playwright-core": "^1.64.0",
+    "three": "0.186.0"
   }
 }
