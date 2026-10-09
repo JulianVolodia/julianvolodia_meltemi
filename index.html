@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Meltemi Mold Studio</title>
+  <meta name="description" content="Turn a 3D model into a print-ready silicone mold box: conformal shells, parting board with key ridges, pins, clips, pour opening, vents and supports.">
+  <meta name="theme-color" content="#0d0f13">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='5' width='11.5' height='22' rx='3' fill='%23e2a93b'/%3E%3Crect x='17.5' y='5' width='11.5' height='22' rx='3' fill='%23b97b18'/%3E%3Cpath d='M16 2v28' stroke='%23ff4d4d' stroke-width='1.8'/%3E%3Cpath d='M12.5 26V12c0-2.2 1.4-3.8 3.5-5.8 2.1 2 3.5 3.6 3.5 5.8v14z' fill='%2313161c'/%3E%3C/svg%3E">
+  <!-- Import map: local node_modules on localhost (unless ?cdn), pinned jsDelivr otherwise.
+       Must be inserted before any module script. -->
+  <script>
+    (function () {
+      var h = location.hostname, q = location.search;
+      var local = /[?&]local\b/.test(q) || (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(h) && !/[?&]cdn\b/.test(q));
+      var imports = local ? {
+        'three': '/node_modules/three/build/three.module.js',
+        'three/addons/': '/node_modules/three/examples/jsm/',
+        'fflate': '/node_modules/fflate/esm/browser.js'
+      } : {
+        'three': 'https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js',
+        'three/addons/': 'https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/',
+        'fflate': 'https://cdn.jsdelivr.net/npm/fflate@0.8.2/esm/browser.js'
+      };
+      var s = document.createElement('script');
+      s.type = 'importmap';
+      s.textContent = JSON.stringify({ imports: imports });
+      document.currentScript.after(s);
+      window.__MELTEMI_LOCAL__ = local;
+    })();
+  </script>
+  <link rel="stylesheet" href="src/ui/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#viewport">Skip to viewport</a>
+  <div id="app" class="app">
+    <header class="topbar">
+      <div class="brand" aria-label="Meltemi Mold Studio">
+        <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+          <rect x="3" y="5" width="11.5" height="22" rx="3" fill="#e2a93b"/>
+          <rect x="17.5" y="5" width="11.5" height="22" rx="3" fill="#b97b18"/>
+          <path d="M16 2v28" stroke="#ff4d4d" stroke-width="1.8"/>
+          <path d="M12.5 26V12c0-2.2 1.4-3.8 3.5-5.8 2.1 2 3.5 3.6 3.5 5.8v14z" fill="#13161c"/>
+        </svg>
+        <span class="brand-name">Meltemi <b>Mold Studio</b></span>
+      </div>
+      <nav class="tools" aria-label="Tools">
+        <button type="button" id="btn-panel" class="tbtn only-mobile" aria-label="Show panel" aria-controls="sidebar" aria-expanded="false"><i data-icon="sliders"></i></button>
+        <div class="tgroup">
+          <button type="button" id="btn-open" class="tbtn" title="Open STL / OBJ / 3MF / PLY (O)"><i data-icon="open"></i><span class="tl">Open</span></button>
+          <button type="button" id="btn-demo-top" class="tbtn" title="Load demo: 3 taper candles"><i data-icon="candle"></i><span class="tl">Demo</span></button>
+        </div>
+        <div class="tgroup" role="group" aria-label="Transform gizmo">
+          <button type="button" id="btn-move" class="tbtn" aria-pressed="true" title="Move (G)"><i data-icon="move"></i><span class="tl">Move</span></button>
+          <button type="button" id="btn-rotate" class="tbtn" aria-pressed="false" title="Rotate (R)"><i data-icon="rotate"></i><span class="tl">Rotate</span></button>
+        </div>
+        <div class="tgroup">
+          <button type="button" id="btn-orient" class="tbtn" title="Auto-orient selected master for pouring"><i data-icon="wand"></i><span class="tl">Auto-orient</span></button>
+          <button type="button" id="btn-drop" class="tbtn" title="Drop to bed (min z = 0)"><i data-icon="drop"></i><span class="tl">Drop</span></button>
+        </div>
+        <div class="tgroup menu-wrap">
+          <button type="button" id="btn-overlay" class="tbtn" aria-haspopup="true" aria-expanded="false" aria-controls="menu-overlay" title="Overlays and view options"><i data-icon="layers"></i><span class="tl">Overlay</span><i data-icon="chev" class="chev-i"></i></button>
+          <div id="menu-overlay" class="menu" role="menu" hidden>
+            <label class="mi" role="menuitemcheckbox"><input type="checkbox" data-overlay="plane" checked> Parting plane</label>
+            <label class="mi" role="menuitemcheckbox"><input type="checkbox" data-overlay="labels" checked> Extraction arrows &amp; labels</label>
+            <label class="mi" role="menuitemcheckbox"><input type="checkbox" data-overlay="grid" checked> Grid</label>
+            <label class="mi" role="menuitemcheckbox"><input type="checkbox" data-overlay="axes" checked> Axis gizmo</label>
+            <label class="mi" role="menuitemcheckbox"><input type="checkbox" id="chk-wire"> Wireframe <kbd>W</kbd></label>
+            <label class="mi" role="menuitemcheckbox"><input type="checkbox" id="chk-section"> Section view <kbd>X</kbd></label>
+            <div class="mi-sep"></div>
+            <div class="mi-row" role="group" aria-label="Camera presets">
+              <button type="button" class="chip" data-view="iso">Iso</button>
+              <button type="button" class="chip" data-view="-y">Front</button>
+              <button type="button" class="chip" data-view="x">Side</button>
+              <button type="button" class="chip" data-view="z">Top</button>
+            </div>
+          </div>
+        </div>
+        <button type="button" id="btn-fit" class="tbtn" title="Fit view (F)"><i data-icon="fit"></i><span class="tl">Fit</span></button>
+      </nav>
+      <div class="top-right">
+        <div class="menu-wrap">
+          <button type="button" id="btn-keys" class="tbtn icon-only" aria-label="Keyboard shortcuts" aria-haspopup="true" aria-expanded="false" aria-controls="menu-keys" title="Keyboard shortcuts (?)"><i data-icon="keyboard"></i></button>
+          <div id="menu-keys" class="menu menu-right keys" role="dialog" aria-label="Keyboard shortcuts" hidden>
+            <h3>Keyboard shortcuts</h3>
+            <dl>
+              <dt><kbd>G</kbd></dt><dd>Move gizmo</dd>
+              <dt><kbd>R</kbd></dt><dd>Rotate gizmo</dd>
+              <dt><kbd>Shift</kbd> drag</dt><dd>Snap 1 mm / 15°</dd>
+              <dt><kbd>Esc</kbd></dt><dd>Deselect / close</dd>
+              <dt><kbd>Del</kbd></dt><dd>Delete selected master</dd>
+              <dt><kbd>Ctrl</kbd>+<kbd>D</kbd></dt><dd>Duplicate selected</dd>
+              <dt><kbd>F</kbd></dt><dd>Fit view</dd>
+              <dt><kbd>1</kbd>–<kbd>4</kbd></dt><dd>Setup / Silicone / Casting / Print</dd>
+              <dt><kbd>E</kbd></dt><dd>Toggle exploded view</dd>
+              <dt><kbd>X</kbd></dt><dd>Section view</dd>
+              <dt><kbd>W</kbd></dt><dd>Wireframe</dd>
+              <dt><kbd>O</kbd></dt><dd>Open file</dd>
+              <dt><kbd>Ctrl</kbd>+<kbd>Enter</kbd></dt><dd>Generate</dd>
+              <dt><kbd>Ctrl</kbd>+<kbd>E</kbd></dt><dd>Export ZIP</dd>
+            </dl>
+          </div>
+        </div>
+        <button type="button" id="btn-how" class="tbtn" title="How it works"><i data-icon="book"></i><span class="tl">How it works</span></button>
+        <button type="button" id="btn-export-top" class="btn btn-primary btn-sm" disabled><i data-icon="download"></i><span class="tl">Export</span></button>
+      </div>
+    </header>
+
+    <aside id="sidebar" class="sidebar" aria-label="Setup and results">
+      <div class="sheet-head only-mobile">
+        <span class="grabber" aria-hidden="true"></span>
+        <button type="button" id="btn-sheet-close" class="tbtn icon-only" aria-label="Close panel"><i data-icon="x"></i></button>
+      </div>
+      <div class="tabs" role="tablist" aria-label="Sidebar">
+        <button type="button" role="tab" id="tab-setup" aria-selected="true" aria-controls="pane-setup">Setup</button>
+        <button type="button" role="tab" id="tab-result" aria-selected="false" aria-controls="pane-result" tabindex="-1">Result <span class="badge" id="result-badge" hidden></span></button>
+      </div>
+      <div class="panes">
+        <section id="pane-setup" role="tabpanel" aria-labelledby="tab-setup" class="pane">
+          <div class="block">
+            <div class="block-head">
+              <h2>Masters</h2>
+              <span class="muted" id="masters-count">none</span>
+            </div>
+            <ul id="master-list" class="master-list" aria-label="Loaded masters"></ul>
+            <div class="master-empty" id="master-empty">
+              <p>No master loaded yet.</p>
+              <div class="row">
+                <button type="button" class="btn btn-sm" id="btn-open-side"><i data-icon="open"></i> Open file…</button>
+                <button type="button" class="btn btn-sm" id="btn-demo-side"><i data-icon="candle"></i> Demo candles</button>
+              </div>
+            </div>
+            <form class="array-tool" id="array-tool" hidden>
+              <span class="at-label"><i data-icon="array"></i> Array</span>
+              <label>× <input type="number" id="array-n" min="2" max="20" step="1" value="3" aria-label="Number of copies in the array"></label>
+              <label>gap <input type="number" id="array-gap" min="0" max="200" step="0.5" value="6" aria-label="Gap between copies in millimetres"> mm</label>
+              <button type="submit" class="btn btn-sm">Apply</button>
+            </form>
+          </div>
+          <div class="block">
+            <div class="block-head"><h2>Parameters</h2></div>
+            <div id="params"></div>
+          </div>
+        </section>
+        <section id="pane-result" role="tabpanel" aria-labelledby="tab-result" class="pane" hidden>
+          <div id="result-empty" class="result-empty">
+            <p>No result yet.</p>
+            <p class="muted">Load a master, check the parting plane, then press <b>Generate</b>.</p>
+          </div>
+          <div id="result-body" hidden>
+            <div id="result-summary" class="result-summary"></div>
+            <div id="warnings" class="warnings" aria-live="polite"></div>
+            <div class="block">
+              <div class="block-head"><h2>Parts</h2><span class="muted" id="parts-count"></span></div>
+              <ul id="part-list" class="part-list"></ul>
+            </div>
+            <div class="block">
+              <div class="block-head"><h2>Instructions</h2></div>
+              <ol id="instructions" class="instructions"></ol>
+            </div>
+          </div>
+        </section>
+      </div>
+      <div class="sidebar-foot">
+        <button type="button" id="btn-generate" class="btn btn-primary btn-lg btn-block" disabled><i data-icon="bolt"></i> <span id="gen-label">Generate mold box</span></button>
+        <div class="engine-hint muted" id="engine-hint">Geometry engine: manifold-3d (WASM) · loads on first run</div>
+      </div>
+    </aside>
+
+    <main id="viewport" class="viewport" tabindex="-1">
+      <div id="empty-state" class="empty-state">
+        <div class="es-card">
+          <svg class="es-art" viewBox="0 0 120 90" aria-hidden="true">
+            <rect x="14" y="10" width="40" height="72" rx="8" fill="none" stroke="#e2a93b" stroke-width="2.5"/>
+            <rect x="66" y="10" width="40" height="72" rx="8" fill="none" stroke="#b97b18" stroke-width="2.5"/>
+            <path d="M60 4v82" stroke="#ff4d4d" stroke-width="2" stroke-dasharray="4 3"/>
+            <path d="M52 78V34c0-6 3.5-10.5 8-16 4.5 5.5 8 10 8 16v44z" fill="#e2a93b" opacity=".9"/>
+            <path d="M60 18v-8" stroke="#e6e9ef" stroke-width="1.6"/>
+          </svg>
+          <h1>Drop an STL/OBJ/3MF or load the demo</h1>
+          <p class="muted">Your model becomes the <b>master</b>. Meltemi builds the printable mold box around it: conformal shells, parting board with key ridges, pins, clips, pour opening and vents — plus supports for the finished silicone form.</p>
+          <div class="row center">
+            <button type="button" id="btn-open-empty" class="btn"><i data-icon="open"></i> Open file…</button>
+            <button type="button" id="btn-demo" class="btn btn-primary"><i data-icon="candle"></i> Load demo: 3 taper candles</button>
+          </div>
+          <button type="button" class="linklike" id="btn-how-empty">How it works</button>
+        </div>
+      </div>
+
+      <div id="selection-bar" class="selbar" hidden role="toolbar" aria-label="Selected master">
+        <div class="sb-info"><b id="sel-name">—</b><span class="muted" id="sel-dims"></span></div>
+        <div class="sb-actions">
+          <button type="button" class="chip" data-rot="x" title="Rotate 90° about X">X 90°</button>
+          <button type="button" class="chip" data-rot="y" title="Rotate 90° about Y">Y 90°</button>
+          <button type="button" class="chip" data-rot="z" title="Rotate 90° about Z">Z 90°</button>
+          <label class="chip chip-input" title="Uniform scale">Scale <input type="number" id="sel-scale" min="1" max="10000" step="1" value="100" aria-label="Scale percent">%</label>
+          <button type="button" class="chip icon-only" id="sel-dup" title="Duplicate (Ctrl+D)" aria-label="Duplicate"><i data-icon="copy"></i></button>
+          <button type="button" class="chip icon-only danger" id="sel-del" title="Delete (Del)" aria-label="Delete"><i data-icon="trash"></i></button>
+        </div>
+      </div>
+
+      <div id="legend" class="legend" hidden>
+        <button type="button" class="legend-head" id="legend-toggle" aria-expanded="true"><span id="legend-title">Parts</span><i data-icon="chev"></i></button>
+        <ul id="legend-list"></ul>
+      </div>
+
+      <div id="toasts" class="toasts" aria-live="polite" aria-atomic="false"></div>
+
+      <div class="stagebar" id="stagebar">
+        <div class="seg stage-seg" role="tablist" aria-label="Assembly stage" id="stage-seg">
+          <button type="button" role="tab" data-stage="setup" aria-selected="true">Setup</button>
+          <button type="button" role="tab" data-stage="silicone" aria-selected="false" disabled><span class="long">Silicone pour</span><span class="short">Silicone</span></button>
+          <button type="button" role="tab" data-stage="cast" aria-selected="false" disabled>Casting</button>
+          <button type="button" role="tab" data-stage="print" aria-selected="false" disabled><span class="long">Print layout</span><span class="short">Print</span></button>
+        </div>
+        <div class="stage-tools" id="stage-tools">
+          <label class="slider" title="Explode (E)"><span>Explode</span><input type="range" id="explode" min="0" max="1" step="0.01" value="0" aria-label="Explode distance" disabled></label>
+          <button type="button" class="chip" id="btn-section" aria-pressed="false" title="Section view (X)"><i data-icon="scissors"></i><span class="tl">Section</span></button>
+          <label class="slider" id="section-wrap" hidden><select id="section-axis" aria-label="Section axis"><option value="x">X</option><option value="y">Y</option><option value="z">Z</option></select><input type="range" id="section-range" min="-50" max="50" step="0.1" value="0" aria-label="Section position"></label>
+        </div>
+      </div>
+
+      <div id="drop-overlay" class="drop-overlay" hidden><div><i data-icon="open"></i><p>Drop STL / OBJ / 3MF / PLY to add masters</p></div></div>
+      <div id="gl-error" class="gl-error" hidden></div>
+    </main>
+
+    <footer class="statusbar" id="statsbar" data-state="idle">
+      <div class="stats" id="stats" aria-live="polite"><span class="muted">No mold yet — load a master and press Generate.</span></div>
+      <div class="status-right">
+        <span class="stale" id="stale-chip" hidden><i data-icon="warn"></i> Out of date — regenerate</span>
+        <div class="split menu-wrap">
+          <button type="button" id="btn-export" class="btn btn-primary" disabled><i data-icon="download"></i> Export</button>
+          <button type="button" id="btn-export-more" class="btn btn-primary split-more" aria-label="More export options" aria-haspopup="true" aria-expanded="false" aria-controls="menu-export" disabled><i data-icon="chev"></i></button>
+          <div id="menu-export" class="menu menu-up menu-right" role="menu" hidden>
+            <button type="button" role="menuitem" class="mi" data-export="zip"><i data-icon="download"></i> Export ZIP (printable STLs + README)</button>
+            <button type="button" role="menuitem" class="mi" data-export="all"><i data-icon="download"></i> Export all incl. silicone &amp; cast preview</button>
+            <button type="button" role="menuitem" class="mi" data-export="params"><i data-icon="sliders"></i> Download params.json</button>
+          </div>
+        </div>
+      </div>
+    </footer>
+
+    <input type="file" id="file-input" accept=".stl,.obj,.3mf,.ply,model/stl,model/3mf" multiple hidden>
+
+    <dialog id="dlg-how" class="dialog" aria-labelledby="how-title">
+      <form method="dialog" class="dlg-inner">
+        <header class="dlg-head">
+          <h2 id="how-title">How it works</h2>
+          <button class="tbtn icon-only" value="close" aria-label="Close"><i data-icon="x"></i></button>
+        </header>
+        <div class="how-grid">
+          <svg class="how-art" viewBox="0 0 260 150" role="img" aria-label="Cross-section: printed shell, silicone layer, master, parting board">
+            <rect x="20" y="16" width="220" height="118" rx="14" fill="#2a2f3a" stroke="#4b5363"/>
+            <rect x="34" y="28" width="192" height="94" rx="10" fill="#3b82c4" opacity=".75"/>
+            <path d="M70 108V58c0-12 26-28 60-28s60 16 60 28v50z" fill="#e2a93b"/>
+            <rect x="126" y="6" width="8" height="138" fill="#c9cfdb" opacity=".85"/>
+            <path d="M130 2v146" stroke="#ff4d4d" stroke-width="1.5" stroke-dasharray="4 3"/>
+            <text x="28" y="146" fill="#8b93a3" font-size="9">printed shell A</text>
+            <text x="168" y="146" fill="#8b93a3" font-size="9">shell B</text>
+            <text x="40" y="44" fill="#dbeafe" font-size="9">silicone</text>
+            <text x="100" y="92" fill="#3b2a07" font-size="9">master</text>
+            <text x="138" y="14" fill="#c9cfdb" font-size="9">parting board</text>
+          </svg>
+          <ol class="how-steps">
+            <li><b>Master.</b> Import the positive (STL/OBJ/3MF) or load the demo. Move/rotate it; the red parting plane splits the mold into halves A (pulled −Y) and B (pulled +Y).</li>
+            <li><b>Mold box &amp; parting board.</b> Generate and print the conformal shells with flanges, ribs and pin holes, plus the parting board that carries the master-half reliefs and tongue-and-groove key ridges.</li>
+            <li><b>Pour silicone.</b> Sandwich the board between the shells, fit pins, clip the flanges and pour silicone into the open top — both halves at once.</li>
+            <li><b>Remove the board.</b> Demold; the two silicone halves now carry the cavity, pour channel, vents and the keys that align them.</li>
+            <li><b>Supports + clips.</b> Put the silicone halves back into the shells (or the lighter windowed cage) and clamp them with the casting clips.</li>
+            <li><b>Pour wax / resin.</b> Cast, let it cure, open the clips and demold. Repeat.</li>
+          </ol>
+        </div>
+        <p class="muted small">Mode <b>Support</b> builds only the mother mold / cage for a silicone form you already have (import its outer surface).</p>
+      </form>
+    </dialog>
+  </div>
+  <noscript><p style="padding:2rem;color:#fff">Meltemi Mold Studio needs JavaScript and WebGL.</p></noscript>
+  <script type="module" src="src/ui/app.js"></script>
+</body>
+</html>
