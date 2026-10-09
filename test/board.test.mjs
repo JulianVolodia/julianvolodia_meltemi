@@ -14,7 +14,7 @@ const y0 = 0, d1 = 5, w = 2.4, zTop = 62, zFloor = -7.4;
 
 /** Synthetic mold context around a vertical cylinder "candle" r=10, z 0..60. */
 function makeCtx(Manifold, params = {}) {
-  const P = resolveParams(params);
+  const P = resolveParams({ boardStyle: "double", siliconeThickness: 5, keyOffset: 2.25, keyWidth: 1.8, keyHeight: 1.4, keyClearance: 0.2, boardThickness: 4, ...params });
   const tf = P.flangeThickness;
   const master = Manifold.cylinder(60, 10, 10, 64);
   const pour = Manifold.cylinder(zTop + 1 - 59.5, 10, 10, 64).translate([0, 0, 59.5]);
