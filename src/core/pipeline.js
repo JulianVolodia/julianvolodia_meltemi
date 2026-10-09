@@ -480,7 +480,7 @@ function moldInstructions(parts, P, stats, style, wick, cage, analysis) {
   } else {
     S.push('Fix the master in shell A (no parting board), close with shell B, pins and clips.');
   }
-  S.push('Seal every external flange/board seam and the bottom edge with hot glue, plasticine or vaseline so the silicone cannot leak; stand the box upright on its floor/ribs on a level surface.');
+  S.push(`Seal every external flange/board seam and the bottom edge with hot glue, plasticine or vaseline so the silicone cannot leak${wick ? ', and plug the wick hole under the floor (the wick channel connects the cavity to the outside) with a blob of putty' : ''}; stand the box upright on its floor/ribs on a level surface.`);
   const mix = `${fmtG(stats.siliconeMassA)} part A + ${fmtG(stats.siliconeMassB)} part B (ratio ${P.siliconeMixRatio} by weight)`;
   const halves = style === 'single' ? ` — box A needs ${fmtG(stats.siliconeHalves.A)}, box B ${fmtG(stats.siliconeHalves.B)}` : '';
   S.push(`Weigh ${fmtG(stats.siliconeMass)} of silicone = ${mix}${halves}; mix ~10 % extra for losses. Mix thoroughly, degas if you can, brush a thin detail coat onto the reliefs, then pour in a thin, steady stream into the open top until the silicone reaches the rim.`);

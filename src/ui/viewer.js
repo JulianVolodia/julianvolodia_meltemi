@@ -633,7 +633,10 @@ export class Viewer {
     for (const [k, g] of Object.entries(this.stageGroups)) g.visible = k === stage;
     // In assembly stages show the loaded masters only if the result carries no master/cast part.
     const assembly = stage === 'silicone' || stage === 'cast';
-    const hasPositive = this.entries.some((e) => (e.part.role === 'master' || e.part.role === 'cast') && e.instances[stage] && e.instances[stage].length);
+    // Parting boards carry the master halves as printed reliefs, so the master itself is not part
+    // of the silicone-pour assembly (and would float in the gap between single-board boxes).
+    const hasPositive = this.entries.some((e) => (e.part.role === 'master' || e.part.role === 'cast'
+      || (stage === 'silicone' && e.part.role === 'board')) && e.instances[stage] && e.instances[stage].length);
     this.mastersGroup.visible = setup || (assembly && !hasPositive);
     if (setup && this.selected) this.tc.attach(this.selected); else this.tc.detach();
     this.tc.enabled = setup;

@@ -201,3 +201,11 @@ test('hollow master is filled and warned', async () => {
   assert.ok(Math.abs(res.stats.castVolume - 24 * 20 * 30) < 1);
   checkPartsValid(res);
 });
+
+test('wick: the wick channel is a leak path through the floor, the instructions say to plug it before the silicone pour', async () => {
+  const res = await generateMoldBox([await cylinderMaster()], { ...DRAFT, wick: true, ribs: false }, () => {}, { keepSolids: true });
+  // the wick hole really goes through the floor (cast stage needs it) ...
+  assert.ok(res.solids.Mp.boundingBox().min[2] < res.frame.zFloor - 0.5, 'wick channel exits below the floor');
+  // ... so the sealing step must tell the user to plug it for the silicone pour
+  assert.ok(res.instructions.some((s) => /plug the wick hole/.test(s)), res.instructions.join('\n'));
+});

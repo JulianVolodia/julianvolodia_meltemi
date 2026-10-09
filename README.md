@@ -1,5 +1,10 @@
 # Meltemi Mold Studio
 
+| Silicone pour setup | Casting setup |
+|---|---|
+| ![Silicone pour](docs/img/silicone-pour.png) | ![Casting](docs/img/casting.png) |
+
+
 **Turn a 3D model into a print-ready mold box — and print supports for the silicone form you
 pour in it.** Runs entirely in the browser (three.js + manifold-3d WASM, nothing is uploaded) and
 as a Node CLI / library. Plain ES modules, no build step.

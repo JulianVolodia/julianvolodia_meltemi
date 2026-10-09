@@ -202,6 +202,15 @@ async function main() {
         await page.click('#tab-result');
         await page.waitForTimeout(200);
         await page.screenshot({ path: path.join(OUT, 'ui-result-tab.png') });
+        const notesUI = await page.evaluate(() => ({
+          warnings: document.querySelectorAll('#warnings .warn-item').length,
+          steps: document.querySelectorAll('#instructions li:not(.muted)').length,
+        }));
+        log(`result tab: ${notesUI.warnings} warnings, ${notesUI.steps} instruction steps`);
+        if (!notesUI.steps) failures.push('no assembly instructions rendered');
+        await page.evaluate(() => { const el = document.querySelector('#instructions'); if (el) el.scrollIntoView({ block: 'center' }); });
+        await page.waitForTimeout(150);
+        await page.screenshot({ path: path.join(OUT, 'ui-result-notes.png') });
         // export zip
         const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.click('#btn-export')]);
         const zipPath = path.join(OUT, 'ui-export.zip');
