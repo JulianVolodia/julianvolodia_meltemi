@@ -179,3 +179,19 @@ test/*.test.mjs        node:test suites
 * Board reliefs translated back reconstruct `Mp` (volume within 1 %).
 * Pin holes coincide in A, B and board; clip gap = sandwich − interference.
 * Air traps: an "h"-shaped test cavity yields exactly one vent; a candle yields none.
+
+## 7. Decisions after expert review (Fable advisors, see `ADVICE-*.md`)
+
+| Advice | Decision |
+|---|---|
+| `Manifold.levelSet` (WASM 3.5.3) traps on large outputs | Replaced by our own **marching-tetrahedra** mesher (`src/core/mesher.js`): Kuhn 6-tet split ⇒ closed 2-manifold by construction, two-layer typed-array edge tables (no hash map), then `Manifold.simplify(0.25 h)`. ~1 s per 1 M-triangle surface + manifold construction. |
+| Silicone too thin for keys at 5 mm | `siliconeThickness` 6, key offset `max(2.5, 0.5·d1)`, key 2.4 × 1.5 mm, groove clearance 0.1 |
+| FDM holes print undersize; clips too loose/fragile | pins Ø4 + 0.4 clearance; clip wall 3.4, interference 0.3; 4 clips per side (pitch ≲ 50 mm) |
+| Double board = tall thin upright print with overhanging reliefs on both faces | default `boardStyle: 'single'` (two flat, support-free boards; both halves can still be poured in one session); `double` kept as an option (matches the reference video) |
+| Wax shrinks 10–15 % | `topExtension` 5 mm riser above the master |
+| Wick seals by interference | wick channel Ø1.6 for a ~2 mm wick |
+| PLA softens at ~55–60 °C | `printMaterial` (PLA/PETG/ASA/PCTG) with densities, default PETG, heat warning |
+| Vents must never exit the envelope | vent rods are included in the SDF source |
+| Silicone volume from booleans of 1 M-tri meshes is slow | counted on the voxel grid |
+| Hollow (shelled) masters | only positive-volume components are used |
+| Later / roadmap | silicone pre-load recess on the board (anti-flash), crush bead / V-chamfer seal, block-style back-down printed shells, draft angle, hybrid exact-near-surface SDF, mode B from master + d1, pry slots |
