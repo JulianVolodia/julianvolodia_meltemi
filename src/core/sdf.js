@@ -9,8 +9,10 @@
 // i + nx*(j + ny*k) (x fastest). No bare imports here (runs in Web Workers): the WASM
 // module comes from mf().
 import { mf } from './wasm.js';
+import { isoSurfaceSolid } from './mesher.js';
 
-const FAR = 1e6; // "no surface anywhere" distance / outside-the-grid sample value
+const FAR = 1e6;
+let BUMP_BOUNDS = typeof process !== "undefined" && process.env && process.env.MELTEMI_BUMP === "1";
 const INF = 1e20; // EDT infinity (squared voxel units)
 // Tiny irrational jitter of the column centres (fraction of h) so scan lines never pass
 // exactly through mesh vertices or edges that lie on "nice" coordinates.
@@ -801,29 +803,66 @@ export function makeSampler(phi, grid) {
 }
 
 /**
+ * Positive-inside SDF for Manifold.levelSet: level - trilinear(phi), clamped to
+ * ±4·max(edge, h) (same zero set, no extreme interpolation ratios). Outside the grid it is
+ * -(0.25 h + distance to the grid box) instead of a huge jump, which would create
+ * near-coincident vertices (manifold-3d 3.5.3 can trap on those).
+ */
+function makeLevelSetSampler(phi, grid, level, edgeLength) {
+  const { nx, ny, nz, h } = grid;
+  if (nx < 2 || ny < 2 || nz < 2) throw new Error('levelSetSolid: grid needs >= 2 voxels per axis');
+  const ox = grid.origin[0], oy = grid.origin[1], oz = grid.origin[2];
+  const inv = 1 / h;
+  const sy = nx, sz = nx * ny;
+  const EPS = 1e-6;
+  const mxX = nx - 1 + EPS, mxY = ny - 1 + EPS, mxZ = nz - 1 + EPS;
+  const lX = nx - 2, lY = ny - 2, lZ = nz - 2;
+  const C = 4 * Math.max(edgeLength, h);
+  const gx1 = ox + h * (nx - 1), gy1 = oy + h * (ny - 1), gz1 = oz + h * (nz - 1);
+  return function sdf(p) {
+    const fx = (p[0] - ox) * inv, fy = (p[1] - oy) * inv, fz = (p[2] - oz) * inv;
+    if (!(fx >= -EPS && fx <= mxX && fy >= -EPS && fy <= mxY && fz >= -EPS && fz <= mxZ)) {
+      const dx = p[0] < ox ? ox - p[0] : p[0] > gx1 ? p[0] - gx1 : 0;
+      const dy = p[1] < oy ? oy - p[1] : p[1] > gy1 ? p[1] - gy1 : 0;
+      const dz = p[2] < oz ? oz - p[2] : p[2] > gz1 ? p[2] - gz1 : 0;
+      const d = 0.25 * h + Math.sqrt(dx * dx + dy * dy + dz * dz);
+      return d > C ? -C : -d;
+    }
+    let i = Math.floor(fx), j = Math.floor(fy), k = Math.floor(fz);
+    if (i > lX) i = lX; else if (i < 0) i = 0;
+    if (j > lY) j = lY; else if (j < 0) j = 0;
+    if (k > lZ) k = lZ; else if (k < 0) k = 0;
+    const tx = fx - i, ty = fy - j, tz = fz - k;
+    const b = i + sy * j + sz * k;
+    const c00 = phi[b] + (phi[b + 1] - phi[b]) * tx;
+    const c10 = phi[b + sy] + (phi[b + sy + 1] - phi[b + sy]) * tx;
+    const c01 = phi[b + sz] + (phi[b + sz + 1] - phi[b + sz]) * tx;
+    const c11 = phi[b + sz + sy] + (phi[b + sz + sy + 1] - phi[b + sz + sy]) * tx;
+    const c0 = c00 + (c10 - c00) * ty;
+    const c1 = c01 + (c11 - c01) * ty;
+    const v = level - (c0 + (c1 - c0) * tz);
+    return v > C ? C : v < -C ? -C : v;
+  };
+}
+
+/**
  * Manifold of the region {phi < level} (surface = trilinear iso-surface).
  * When `bounds` is not given, the level-set box is the grid bounds tightened to the voxels
- * with phi < level (+2 voxels), which gives the same surface far faster. Surfaces are closed
- * at the bounds. Returns null when the region is empty.
+ * with phi < level (+2 voxels), which gives the same surface far faster. Bounds are clipped
+ * to the grid (outside it phi counts as outside). Surfaces are closed at the bounds.
+ * Returns null when the region is empty.
  *
- * Guard: manifold-3d 3.5.3's levelSet can trap ("memory access out of bounds", which also
- * corrupts the WASM heap) when its internal surface hash table overflows and is resized.
- * We estimate the number of surface vertices from the voxel field and, if it could exceed
- * the table, enlarge the bounds along the cheapest axes until the table is big enough
- * (outside the grid the sampler reads "far outside", so the surface is unchanged).
+ * Guards for manifold-3d 3.5.3, whose levelSet can trap ("memory access out of bounds",
+ * which also corrupts the WASM heap): (1) no field jumps (see makeLevelSetSampler);
+ * (2) its internal surface hash table must not overflow (the resize path is fragile): the
+ * number of surface vertices is estimated from the voxel field and, if needed, the bounds
+ * are enlarged along the cheapest axes until the table is big enough (the surface is
+ * unchanged: outside the grid the field reads "outside").
  */
-export function levelSetSolid(phi, grid, { level = 0, edgeLength = grid.h, bounds } = {}) {
-  const { Manifold } = mf();
-  let b = bounds;
-  if (!b) {
-    b = tightBounds(phi, grid, level);
-    if (!b) return null;
-  }
-  b = levelSetSafeBounds(phi, grid, level, b, edgeLength);
-  const sample = makeSampler(phi, grid);
-  const m = Manifold.levelSet((p) => level - sample(p), b, edgeLength, 0);
-  if (m.isEmpty() || m.numTri() === 0) return null;
-  return m;
+export function levelSetSolid(phi, grid, { level = 0, bounds, simplify } = {}) {
+  // Pure-JS marching tetrahedra (src/core/mesher.js): Manifold.levelSet in the manifold-3d
+  // 3.5.3 WASM build traps ("memory access out of bounds") on large outputs.
+  return isoSurfaceSolid(phi, grid, { level, bounds, simplify });
 }
 
 /**
@@ -878,9 +917,28 @@ function estimateSurfaceVerts(phi, grid, level, b, e) {
   return (2.5 * (cross + closure) * h * h) / (e * e);
 }
 
-function levelSetSafeBounds(phi, grid, level, b, e) {
-  const est = estimateSurfaceVerts(phi, grid, level, b, e);
-  let cur = { min: b.min.slice(), max: b.max.slice() };
+/**
+ * Bounds that levelSetSolid() will pass to Manifold.levelSet, with diagnostics:
+ * {bounds, estVerts, capacity} or null when {phi < level} is empty.
+ */
+export function levelSetPlan(phi, grid, { level = 0, edgeLength = grid.h, bounds } = {}) {
+  let b = bounds ?? tightBounds(phi, grid, level);
+  if (!b) return null;
+  // Outside the grid phi is unknown (= outside), so clip to the grid: same solid, and the
+  // closure happens on the bounds instead of on a field discontinuity.
+  const gb = grid.bounds();
+  b = {
+    min: [0, 1, 2].map((a) => Math.min(Math.max(b.min[a], gb.min[a]), gb.max[a])),
+    max: [0, 1, 2].map((a) => Math.max(Math.min(b.max[a], gb.max[a]), gb.min[a])),
+  };
+  if (![0, 1, 2].every((a) => b.max[a] > b.min[a])) return null;
+  const estVerts = estimateSurfaceVerts(phi, grid, level, b, edgeLength);
+  const safe = BUMP_BOUNDS ? levelSetSafeBounds(b, edgeLength, estVerts) : b;
+  return { bounds: safe, estVerts, capacity: levelSetTableCapacity(safe, edgeLength) };
+}
+
+function levelSetSafeBounds(b, e, est) {
+  const cur = { min: b.min.slice(), max: b.max.slice() };
   for (let iter = 0; iter < 8; iter++) {
     if (est <= 0.8 * levelSetTableCapacity(cur, e)) return cur;
     // bump the axis whose gridSize is cheapest to raise to the next power of two (minus 2)

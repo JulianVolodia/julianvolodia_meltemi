@@ -10,6 +10,13 @@ export const CAST_MATERIALS = {
   chocolate: { label: 'Chocolate', density: 1.3 },
 };
 
+export const PRINT_MATERIALS = {
+  pla: { label: 'PLA (1.24 g/cm³, Tg ~58 °C)', density: 1.24, tg: 58 },
+  petg: { label: 'PETG (1.27 g/cm³, Tg ~80 °C)', density: 1.27, tg: 80 },
+  asa: { label: 'ASA/ABS (1.07 g/cm³, Tg ~100 °C)', density: 1.07, tg: 100 },
+  pctg: { label: 'PCTG (1.23 g/cm³, Tg ~85 °C)', density: 1.23, tg: 85 },
+};
+
 export const PARAM_SCHEMA = [
   {
     group: 'Mode', items: [
@@ -54,7 +61,7 @@ export const PARAM_SCHEMA = [
       { key: 'boardThickness', label: 'Board thickness', type: 'number', min: 2, max: 12, step: 0.2, unit: 'mm' },
       { key: 'boardTopExtra', label: 'Board handle above rim', type: 'number', min: 0, max: 30, step: 1, unit: 'mm' },
       { key: 'keys', label: 'Key ridge (tongue & groove)', type: 'boolean' },
-      { key: 'keyOffset', label: 'Key offset from cavity', type: 'number', min: 0.5, max: 20, step: 0.25, unit: 'mm', help: 'Blank = 45 % of silicone thickness' },
+      { key: 'keyOffset', label: 'Key offset from cavity', type: 'number', min: 0.5, max: 20, step: 0.25, unit: 'mm', help: 'Blank = max(2.5 mm, 50 % of silicone thickness)' },
       { key: 'keyWidth', label: 'Key width', type: 'number', min: 0.6, max: 6, step: 0.1, unit: 'mm' },
       { key: 'keyHeight', label: 'Key height', type: 'number', min: 0.4, max: 4, step: 0.1, unit: 'mm' },
       { key: 'keyClearance', label: 'Groove clearance', type: 'number', min: 0, max: 1, step: 0.05, unit: 'mm' },
@@ -87,7 +94,7 @@ export const PARAM_SCHEMA = [
   {
     group: 'Materials', items: [
       { key: 'castMaterial', label: 'Casting material', type: 'select', options: Object.fromEntries(Object.entries(CAST_MATERIALS).map(([k, v]) => [k, v.label])) },
-      { key: 'densityPrint', label: 'Print density (PLA 1.24)', type: 'number', min: 0.5, max: 3, step: 0.01, unit: 'g/cm³' },
+      { key: 'printMaterial', label: 'Print material', type: 'select', options: Object.fromEntries(Object.entries(PRINT_MATERIALS).map(([k, v]) => [k, v.label])), help: 'PLA softens at ~55-60 °C: use PETG/ASA for parts that see hot wax or exothermic resin' },
       { key: 'densitySilicone', label: 'Silicone density', type: 'number', min: 0.9, max: 1.6, step: 0.01, unit: 'g/cm³' },
       { key: 'siliconeMixRatio', label: 'Silicone mix A:B (by weight)', type: 'text', help: 'e.g. 1:1 or 10:1' },
     ],
@@ -99,36 +106,36 @@ export const DEFAULTS = {
   quality: 'normal',
   partingOffset: 0,
   demold: 'straight',
-  siliconeThickness: 5,
+  siliconeThickness: 6,
   wallThickness: 2.4,
-  topExtension: 2,
+  topExtension: 5, // riser: wax shrinks 10-15 % by volume
   base: 'plinth',
   baseExtra: 0,
-  cageClearance: 0.3,
+  cageClearance: 0.5,
   flangeWidth: 14,
   flangeThickness: 4,
   pinsPerSide: 3,
-  pinDiameter: 3,
-  pinClearance: 0.25,
-  clipsPerSide: 3,
+  pinDiameter: 4,
+  pinClearance: 0.4, // FDM holes print undersize
+  clipsPerSide: 4, // keep clip pitch <= ~50 mm against silicone head pressure
   clipsBottom: 1,
   clipWidth: 10,
-  clipWall: 2.8,
+  clipWall: 3.4,
   clipJaw: 5,
-  clipInterference: 0.15,
-  boardStyle: 'double',
-  boardThickness: 4,
-  boardTopExtra: 6,
+  clipInterference: 0.3,
+  boardStyle: 'single', // flat-printable, support-free reliefs (expert advice)
+  boardThickness: 5,
+  boardTopExtra: 12,
   keys: true,
-  keyOffset: null, // null -> 0.45 * siliconeThickness
-  keyWidth: 1.8,
-  keyHeight: 1.4,
-  keyClearance: 0.2,
+  keyOffset: null, // null -> max(2.5, 0.5 * siliconeThickness)
+  keyWidth: 2.4,
+  keyHeight: 1.5,
+  keyClearance: 0.1,
   pourMode: 'auto',
   sprueR1: 3,
   sprueR2: 7,
   wick: false,
-  wickDiameter: 2.2,
+  wickDiameter: 1.6, // ~0.8 x wick diameter so the wick seals by interference
   vents: true,
   ventDiameter: 2,
   ventMinDepth: 1.5,
@@ -141,7 +148,7 @@ export const DEFAULTS = {
   windowHeight: 28,
   windowBar: 5,
   castMaterial: 'wax',
-  densityPrint: 1.24,
+  printMaterial: 'petg',
   densitySilicone: 1.1,
   siliconeMixRatio: '1:1',
 };
@@ -164,7 +171,10 @@ export function resolveParams(p = {}) {
       if (it.type === 'number' && out[it.key] !== null && out[it.key] !== '') out[it.key] = Number(out[it.key]);
       if (it.type === 'boolean') out[it.key] = Boolean(out[it.key]);
     }
-  if (out.keyOffset === null || out.keyOffset === '' || Number.isNaN(out.keyOffset)) out.keyOffset = 0.45 * out.siliconeThickness;
+  if (out.keyOffset === null || out.keyOffset === '' || Number.isNaN(out.keyOffset)) out.keyOffset = Math.max(2.5, 0.5 * out.siliconeThickness);
+  const pm = PRINT_MATERIALS[out.printMaterial] || PRINT_MATERIALS.pla;
+  if (!(Number(p?.densityPrint) > 0)) out.densityPrint = pm.density;
+  out.printMaterialTg = pm.tg;
   out.densityCast = (CAST_MATERIALS[out.castMaterial] || CAST_MATERIALS.wax).density;
   out.q = QUALITY[out.quality] || QUALITY.normal;
   return out;
