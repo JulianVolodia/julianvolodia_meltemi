@@ -12,7 +12,7 @@ import { resolveParams, mixFractions, CAST_MATERIALS } from './params.js';
 import { manifoldFromMesh, meshFromManifold } from './meshio.js';
 import { voxelizeManifold } from './sdf.js';
 import { findAirTraps } from './analysis.js';
-import { trimSide, trimZ, mat4Identity, mat4Translation, mat4Mul, unionAll } from './frame.js';
+import { trimSide, trimZ, mat4Identity, mat4Translation, mat4Mul, unionAll, box as boxSolid } from './frame.js';
 import { buildPourExtensions, buildWick, buildVents } from './features/channels.js';
 import { shellGrid, buildShellFields, buildShells, regionBetween, CAV_LEVEL } from './features/shell.js';
 import { buildFlangeGeometry, applyFlange } from './features/flanges.js';
@@ -20,7 +20,7 @@ import { buildRibs, ribPositions } from './features/ribs.js';
 import { buildBoards } from './features/board.js';
 import { collarOutline2D, buildCollarFrame, collarVoid, collarSilicone } from './features/collar.js';
 import { buildClip, clipPose, clipPrintMatrix } from './features/clips.js';
-import { buildPin, pinLengths, pinPose, pinHole, pinPrintMatrix } from './features/pins.js';
+import { buildPin, pinLengths, pinPose, pinHole, pinPrintMatrix, registrationMode, pegSolid, socketSolid } from './features/pins.js';
 import { cutWindows } from './features/windows.js';
 
 const MAX_VENTS = 12;
@@ -101,12 +101,45 @@ function dropMatrix(solid) {
   return mat4Translation(0, 0, -bb.min[2]);
 }
 
-/** Shell pin holes for half `side`. */
-function pinHolesFor(ctx, side) {
+const FILL_SEAL = 0.02; // mm: contact faces are overlapped by this much when computing fills
+
+/**
+ * The real fill of a container: the parts of box [lo, hi] not occupied by `walls` and not
+ * connected to the box's sides or bottom (the top, the pour level, may be open). Components
+ * smaller than minVol (mm³) are dropped (clearance slivers). Null when nothing is enclosed —
+ * i.e. the container leaks.
+ */
+function enclosedFill(walls, lo, hi, minVol = 20) {
+  // keep the box faces off the walls' faces: a box top exactly at the dam/collar top would be
+  // resolved by symbolic perturbation and could leave a zero-thickness bridge over the dam
+  hi = [hi[0], hi[1], hi[2] - 0.05];
+  const w = unionAll(walls.filter(Boolean));
+  const space = w ? boxSolid(lo, hi).subtract(w) : boxSolid(lo, hi);
+  const tol = 0.02;
+  const keep = space.decompose().filter((c) => {
+    if (c.volume() < minVol) return false;
+    const b = c.boundingBox();
+    return b.min[0] > lo[0] + tol && b.max[0] < hi[0] - tol && b.min[1] > lo[1] + tol && b.max[1] < hi[1] - tol && b.min[2] > lo[2] + tol;
+  });
+  return unionAll(keep);
+}
+
+/**
+ * Registration features of shell half `side`: loose pins -> holes through the flange;
+ * interlock -> diamond pegs on flange A's face, matching (through) sockets in flange B.
+ * @returns {{add: *, sub: *}}
+ */
+function registrationFor(ctx, side) {
   const { y0, P } = ctx;
   const tf = P.flangeThickness;
-  const holes = (ctx.pinSites || []).map((s) => (side === 'A' ? pinHole(s, y0 - tf - 1, y0 + 0.01, P) : pinHole(s, y0 - 0.01, y0 + tf + 1, P)));
-  return unionAll(holes);
+  const sites = ctx.pinSites || [];
+  if (!sites.length) return { add: null, sub: null };
+  if (registrationMode(P) === 'pins') {
+    const holes = sites.map((s) => (side === 'A' ? pinHole(s, y0 - tf - 1, y0 + 0.01, P) : pinHole(s, y0 - 0.01, y0 + tf + 1, P)));
+    return { add: null, sub: unionAll(holes) };
+  }
+  if (side === 'A') return { add: unionAll(sites.map((s) => pegSolid(s, y0, P))), sub: null };
+  return { add: null, sub: unionAll(sites.map((s) => socketSolid(s, y0, P, tf + 1))) };
 }
 
 /** Final shell (or cage) half: flange-applied base [-> windows] ∪ ribs − pin holes − wick − cav − Mp. */
@@ -120,8 +153,9 @@ function finishHalf(ctx, side, base, { windows = false, wick = null } = {}) {
   }
   const ribs = P.ribs ? buildRibs(ctx, side) : null;
   if (ribs) s = s.add(ribs);
-  const holes = pinHolesFor(ctx, side);
-  if (holes) s = s.subtract(holes);
+  const reg = registrationFor(ctx, side);
+  if (reg.add) s = s.add(reg.add);
+  if (reg.sub) s = s.subtract(reg.sub);
   if (wick) s = s.subtract(wick);
   if (ctx.collarVoid) s = s.subtract(ctx.collarVoid);
   const cav = side === 'A' ? ctx.cavA : ctx.cavB;
@@ -350,7 +384,8 @@ async function run(inputs, P, onProgress, opts, mode) {
       const castPinPoses = ctx.pinSites.map((s) => pinPose(s, y0 - tf + 0.2));
       let clipsMass = 0, pinsMass = 0;
       const clipCast = sites.length ? own(buildClip(2 * tf, P)) : null;
-      const pinCast = ctx.pinSites.length ? own(buildPin(L.cast, P)) : null;
+      const usePins = registrationMode(P) === 'pins';
+      const pinCast = usePins && ctx.pinSites.length ? own(buildPin(L.cast, P)) : null;
       if (style === 'none') {
         const stages = support ? { cast: castClipPoses } : { silicone: castClipPoses, cast: castClipPoses };
         const c = add('clip', 'Clip', 'clip', clipCast, { quantity: sites.length, stages, printMatrix: clipPrintMatrix(P) });
@@ -371,7 +406,7 @@ async function run(inputs, P, onProgress, opts, mode) {
           silPinPoses = ctx.pinSites.map((s) => pinPose(s, y0 - T / 2 - tf + 0.2));
         }
         const clipSil = sites.length ? own(buildClip(sandwich, P)) : null;
-        const pinSil = ctx.pinSites.length ? own(buildPin(L.silicone, P)) : null;
+        const pinSil = usePins && ctx.pinSites.length ? own(buildPin(L.silicone, P)) : null;
         for (const [id, name, solid, poses, stage] of [
           ['clip_silicone', `Clip, silicone stage (${sandwich.toFixed(1)} mm)`, clipSil, silClipPoses, 'silicone'],
           ['clip_cast', `Clip, cast stage (${(2 * tf).toFixed(1)} mm)`, clipCast, castClipPoses, 'cast'],
@@ -397,26 +432,61 @@ async function run(inputs, P, onProgress, opts, mode) {
         }
       }
 
-      // silicone halves and cast (previews)
-      let siliconeVolume = 0, castVolume = 0;
+      // silicone halves and cast: the REAL fills. Silicone half X = the space shell X and its
+      // board(s) enclose in the silicone-pour setup, up to the pour level (so key groove/tongue,
+      // collar, pour and vent channels come out exactly as poured). Cast = the space the two
+      // silicone halves enclose in the casting setup, up to the pour level (riser included).
+      let siliconeVolume = 0, castVolume = 0, castNetVolume = 0;
       const silMass = { A: 0, B: 0 };
       if (!support) {
+        const silSolids = {};
         for (const side of ['A', 'B']) {
-          const cav = side === 'A' ? sh.cavA : sh.cavB;
-          let solid = own(trimZ(trimSide(cav, side, y0), zFloor, zTop).subtract(Mp));
-          const lip = ctx.collar2D ? own(collarSilicone(ctx, side)) : null;
-          const vLip = lip ? lip.volume() : 0;
-          if (lip) solid = own(solid.add(lip));
-          const vVox = (side === 'A' ? sil.volA : sil.volB) + vLip;
+          const shellX = side === 'A' ? fin.A.solid : fin.B.solid;
+          // board(s) in this shell's frame, pressed SEAL into the flange: exactly touching faces
+          // stay separate in exact booleans (a zero-thickness sheet that would link the pocket
+          // to the peg sockets), while the clamped parts are sealed
+          const toShell = side === 'A' ? -FILL_SEAL : FILL_SEAL;
+          const boardsX = style === 'double'
+            ? boards.boards.map((b) => b.solid.translate([0, (side === 'A' ? T / 2 : -T / 2) + toShell, 0]))
+            : boards.boards.filter((b) => b.id === `board${side}`).map((b) => b.solid.translate([0, toShell, 0]));
+          let solid = null;
+          if (boardsX.length) {
+            const sb = shellX.boundingBox();
+            const lo = side === 'A' ? [sb.min[0] - 1, sb.min[1] - 1, zFloor - 1] : [sb.min[0] - 1, y0 - T - 2, zFloor - 1];
+            const hi = side === 'A' ? [sb.max[0] + 1, y0 + T + 2, zPour] : [sb.max[0] + 1, sb.max[1] + 1, zPour];
+            solid = enclosedFill([shellX, ...boardsX, wick], lo, hi);
+            if (solid) own(solid);
+            else warnings.push(`Silicone pocket of half ${side} is not closed by its shell and board (it would leak) — the silicone shown for this half is approximate.`);
+          }
+          if (!solid) {
+            // no board (or a leaking pocket): cavity of the half minus the cast cavity
+            solid = own(trimZ(trimSide(side === 'A' ? sh.cavA : sh.cavB, side, y0), zFloor, zTop).subtract(Mp));
+            const lip = ctx.collar2D ? own(collarSilicone(ctx, side)) : null;
+            if (lip) solid = own(solid.add(lip));
+          }
+          silSolids[side] = solid;
+          const vol = solid.volume();
           const p = add(`silicone${side}`, `Silicone half ${side}`, 'silicone', solid, {
-            stages: { cast: [I] }, printable: false, density: rhoS, printMatrix: I,
+            stages: { cast: [I] }, printable: false, density: rhoS, printMatrix: I, volume: vol,
           });
-          if (p) { p.voxelVolume = vVox; }
-          silMass[side] = (vVox / 1000) * rhoS;
-          siliconeVolume += vVox;
+          if (p) p.voxelVolume = side === 'A' ? sil.volA : sil.volB; // independent estimate, for reference
+          silMass[side] = (vol / 1000) * rhoS;
+          siliconeVolume += vol;
         }
-        castVolume = volumeOf(M);
-        add('cast', `Cast (${(CAST_MATERIALS[P.castMaterial] || {}).label || P.castMaterial})`, 'cast', M, {
+        // the cast: what the two silicone halves enclose (the wick, if any, stays in the candle)
+        const ub = silSolids.A.boundingBox(), vb = silSolids.B.boundingBox();
+        const lo = [Math.min(ub.min[0], vb.min[0]) - 1, Math.min(ub.min[1], vb.min[1]) - 1, zFloor - 1];
+        const hi = [Math.max(ub.max[0], vb.max[0]) + 1, Math.max(ub.max[1], vb.max[1]) + 1, zPour];
+        // the halves pressed together by 1.5 SEAL so their faces overlap (closed seam)
+        let cast = enclosedFill([silSolids.A.translate([0, 1.5 * FILL_SEAL, 0]), silSolids.B.translate([0, -1.5 * FILL_SEAL, 0]), wick], lo, hi, 1);
+        if (cast) own(cast);
+        else {
+          warnings.push('The silicone halves do not enclose the cast cavity (leak) — the cast shown is the cavity of the masters.');
+          cast = own(trimZ(Mp, zFloor, zPour));
+        }
+        castVolume = cast.volume();
+        castNetVolume = volumeOf(M);
+        add('cast', `Cast (${(CAST_MATERIALS[P.castMaterial] || {}).label || P.castMaterial})`, 'cast', cast, {
           stages: { cast: [I] }, printable: false, density: rhoC, printMatrix: I, volume: castVolume,
         });
       }
@@ -434,12 +504,13 @@ async function run(inputs, P, onProgress, opts, mode) {
         siliconeMassA: siliconeMass * fa, siliconeMassB: siliconeMass * fb,
         siliconeHalves: { A: silMass.A, B: silMass.B },
         castVolume, castMass: (castVolume / 1000) * rhoC,
+        castNetVolume, castNetMass: (castNetVolume / 1000) * rhoC, // the part itself, without riser/channels
         voxelSize: h,
         grid: [grid.nx, grid.ny, grid.nz],
         timings,
       };
       if (support) {
-        for (const k of ['siliconeVolume', 'siliconeMass', 'siliconeMix', 'siliconeMassA', 'siliconeMassB', 'siliconeHalves', 'castVolume', 'castMass']) delete stats[k];
+        for (const k of ['siliconeVolume', 'siliconeMass', 'siliconeMix', 'siliconeMassA', 'siliconeMassB', 'siliconeHalves', 'castVolume', 'castMass', 'castNetVolume', 'castNetMass']) delete stats[k];
       }
       return { parts, stats };
     });
@@ -494,40 +565,45 @@ function printList(parts) {
 function moldInstructions(parts, P, stats, style, wick, cage, analysis) {
   const S = [];
   const castMat = (CAST_MATERIALS[P.castMaterial] || { label: P.castMaterial }).label;
-  S.push(`Print: ${printList(parts)}. Shells upright as exported (open top up), boards as exported, clips flat, pins standing. PETG is recommended for every part used while casting hot material (PLA is fine for the silicone stage only); 0.2 mm layers, 4 perimeters, 15-25 % infill, 100 % for clips and pins.`);
+  const pins = registrationMode(P) === 'pins';
+  const andPins = pins ? ' and pins' : '';
+  S.push(`Print: ${printList(parts)}. Shells upright as exported (open top up), boards as exported, clips flat${pins ? ', pins standing' : ''}. PETG is recommended for every part used while casting hot material (PLA is fine for the silicone stage only); 0.2 mm layers, 4 perimeters, 15-25 % infill, 100 % for clips${andPins}.`);
   S.push('Clean up the board reliefs (light sanding / primer gives a smoother cast), then coat every printed surface that will touch silicone — board reliefs, board faces, shell interiors and flange faces — with a release agent (mold-release spray or a thin film of vaseline). Platinum silicones can be cure-inhibited by some prints: do a small test first, or use tin-cure silicone.');
   if (style === 'double') {
-    S.push(`Assemble shell A | parting board | shell B: push the ${qtyOf(parts, 'pin_silicone')} long pins through the flange and board holes and clamp the sandwich with the ${qtyOf(parts, 'clip_silicone')} silicone-stage clips (bottom clips first, then the sides from the bottom up).`);
+    S.push(`Assemble shell A | parting board | shell B: ${pins ? `push the ${qtyOf(parts, 'pin_silicone')} long pins through the flange and board holes` : "press shell A's pegs into the sockets in the board's A face and the board's pegs into shell B's sockets"} and clamp the sandwich with the ${qtyOf(parts, 'clip_silicone')} silicone-stage clips (bottom clips first, then the sides from the bottom up).`);
   } else if (style === 'single') {
-    S.push(`Assemble two boxes: shell A + board A and shell B + board B, each pinned with long pins and clamped with silicone-stage clips (${qtyOf(parts, 'pin_silicone')} pins and ${qtyOf(parts, 'clip_silicone')} clips in total, bottom clips first).`);
+    S.push(pins
+      ? `Assemble two boxes: shell A + board A and shell B + board B, each pinned with long pins and clamped with silicone-stage clips (${qtyOf(parts, 'pin_silicone')} pins and ${qtyOf(parts, 'clip_silicone')} clips in total, bottom clips first).`
+      : `Assemble two boxes: press shell A's pegs into board A's sockets and board B's pegs into shell B's sockets (the tapered diamond pegs centre the parts), then clamp each box with silicone-stage clips (${qtyOf(parts, 'clip_silicone')} clips in total, bottom clips first).`);
   } else {
-    S.push('Fix the master in shell A (no parting board), close with shell B, pins and clips.');
+    S.push(`Fix the master in shell A (no parting board), close with shell B (${pins ? 'pins' : 'pegs into sockets'}) and clamp with the clips.`);
   }
   S.push(`Seal every external flange/board seam and the bottom edge with hot glue, plasticine or vaseline so the silicone cannot leak${wick ? ', and plug the wick hole under the floor (the wick channel connects the cavity to the outside) with a blob of putty' : ''}; stand the box upright on its floor/ribs on a level surface.`);
   const mix = `${fmtG(stats.siliconeMassA)} part A + ${fmtG(stats.siliconeMassB)} part B (ratio ${P.siliconeMixRatio} by weight)`;
   const halves = style === 'single' ? ` — box A needs ${fmtG(stats.siliconeHalves.A)}, box B ${fmtG(stats.siliconeHalves.B)}` : '';
   S.push(`Weigh ${fmtG(stats.siliconeMass)} of silicone = ${mix}${halves}; mix ~10 % extra for losses. Mix thoroughly, degas if you can, brush a thin detail coat onto the reliefs, then pour in a thin, steady stream into the open top${P.collar ? ` until the silicone fills the collar pocket up to the top of the dam (${Number(P.collarHeight)} mm above the shell rim) — this forms the silicone collar` : ' until the silicone reaches the rim'}.`);
-  S.push('Let the silicone cure completely (see its datasheet), then remove clips and pins, pull the shells off along ±Y and peel the parting board(s) out of the silicone halves.');
+  S.push('Let the silicone cure completely (see its datasheet), then remove the clips${andPins}, pull the shells off along ±Y and peel the parting board(s) out of the silicone halves.');
   if (wick) S.push('Thread the wick through the wick channel (split on the parting plane) and keep it centred and taut with a wick bar or clothes peg across the top opening; seal the hole under the floor with a little putty.');
   S.push(cage
-    ? `Put the silicone halves into the support cage halves, join them with the ${qtyOf(parts, 'pin_cast')} short pins and clamp with the ${qtyOf(parts, 'clip_cast')} cast-stage clips.`
-    : `Put the silicone halves back into shell A and shell B${P.collar ? ' (each collar lip seats on its shell rim inside the dam, so the skin hangs from it and cannot slide down)' : ''}, join the halves with the ${qtyOf(parts, 'pin_cast')} short pins and clamp with the ${qtyOf(parts, 'clip_cast')} cast-stage clips.`);
+    ? `Put the silicone halves into the support cage halves, join them ${pins ? `with the ${qtyOf(parts, 'pin_cast')} short pins` : '(pegs into sockets)'} and clamp with the ${qtyOf(parts, 'clip_cast')} cast-stage clips.`
+    : `Put the silicone halves back into shell A and shell B${P.collar ? ' (each collar lip seats on its shell rim inside the dam, so the skin hangs from it and cannot slide down)' : ''}, join the halves ${pins ? `with the ${qtyOf(parts, 'pin_cast')} short pins` : "(shell A's pegs into shell B's sockets)"} and clamp with the ${qtyOf(parts, 'clip_cast')} cast-stage clips.`);
   const vents = analysis.vents && analysis.vents.length ? ` The ${analysis.vents.length} vent channel(s) let trapped air out — stop when material appears in them.` : '';
-  S.push(`Pour ${fmtG(stats.castMass)} of ${castMat.toLowerCase()} (+ ~15 % for top-ups and the riser) through the opening(s) at the top.${vents}`);
+  S.push(`Pour ${fmtG(stats.castMass)} of ${castMat.toLowerCase()} (the full cavity incl. riser and channels; the finished part is ${fmtG(stats.castNetMass)}) + ~10 % for top-ups, through the opening(s) at the top.${vents}`);
   S.push(P.castMaterial === 'wax'
     ? 'Wax shrinks 10-15 % while it sets: top up the sink at the pour face once the first pour has skinned over, then level the base.'
     : 'Top up the pour face after the material has settled/shrunk, then let it cure.');
-  S.push('Demold: remove the clips and pins, pull the shells (or cage) off along ±Y, open the silicone halves and take the cast out. Trim the pour stub and vent sprues.');
+  S.push(`Demold: remove the clips${andPins}, pull the shells (or cage) off along ±Y, open the silicone halves and take the cast out. Trim the pour stub and vent sprues.`);
   return S;
 }
 
 function supportInstructions(parts, P) {
   const S = [];
-  S.push(`Print: ${printList(parts)}. Support halves upright as exported, clips flat, pins standing; PETG recommended when casting hot material.`);
+  const pins = registrationMode(P) === 'pins';
+  S.push(`Print: ${printList(parts)}. Support halves upright as exported, clips flat${pins ? ', pins standing' : ''}; PETG recommended when casting hot material.`);
   S.push(`Check the fit: the support leaves ${P.cageClearance} mm clearance around the silicone form.`);
-  S.push(`Place the closed silicone form into support half A, close with half B, insert the ${qtyOf(parts, 'pin')} pins and clamp with the ${qtyOf(parts, 'clip')} clips.`);
+  S.push(`Place the closed silicone form into support half A, close with half B${pins ? `, insert the ${qtyOf(parts, 'pin')} pins` : ' (pegs into sockets)'} and clamp with the ${qtyOf(parts, 'clip')} clips.`);
   S.push('Stand the support on its floor/ribs, pour the casting material into the form, top up after shrinkage and let it set.');
-  S.push('Demold: remove the clips and pins, pull the halves off along ±Y and take the form out.');
+  S.push(`Demold: remove the clips${pins ? ' and pins' : ''}, pull the halves off along ±Y and take the form out.`);
   return S;
 }
 

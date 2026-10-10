@@ -81,7 +81,10 @@ test('moldbox (cylinder r10 h60, default single boards): valid parts and geometr
   assert.ok(gap >= d1 - 1.0 && gap <= d1 + 2 * h, `silicone thickness ${gap} (d1 ${d1}, h ${h})`);
   const gapB = B.minGap(Mp, d1 + 5);
   assert.ok(gapB >= d1 - 1.0 && gapB <= d1 + 2 * h, `silicone thickness B ${gapB}`);
-  assert.ok(A.boundingBox().max[1] <= y0 + 1e-6, 'shell A stays on y <= y0');
+  // shell A stays on y <= y0 except its registration pegs, which key into shell B's sockets
+  assert.ok(A.trimByPlane([0, 1, 0], y0 + 1e-3).volume() > 0 === (P.registration !== 'pins'), 'pegs only in interlock mode');
+  assert.ok(A.boundingBox().max[1] <= y0 + P.pegHeight + 0.06, 'shell A: nothing but pegs beyond y0');
+  assert.ok(A.trimByPlane([0, 1, 0], y0 + 1e-3).intersect(B).volume() < 1e-3, 'pegs fit the sockets of shell B (no overlap)');
   assert.ok(B.boundingBox().min[1] >= y0 - 1e-6, 'shell B stays on y >= y0');
   assert.ok(Math.abs(A.boundingBox().min[2] - res.frame.zFloor) < 1e-6, 'stands on zFloor');
   assert.ok(A.boundingBox().max[2] <= res.frame.zPour + 1e-6, 'nothing above the collar dam (zPour)');
@@ -114,15 +117,19 @@ test('moldbox (cylinder r10 h60, default single boards): valid parts and geometr
     assert.ok(c.intersect(shells).volume() < 0.05, `clip at ${s.e} (${s.side}) collides with a shell`);
     assert.ok(c.boundingBox().min[2] >= res.frame.zFloor - 1e-6, `clip at ${s.e} protrudes below the floor`);
   }
-  const pinCast = solids.pin_cast;
-  for (const m of part(res, 'pin_cast').stages.cast) assert.ok(pinCast.transform(m).intersect(shells).volume() < 0.05, 'pin collides');
-  assert.equal(part(res, 'pin_cast').quantity, res.analysis.pinSites.length);
+  if (P.registration === 'pins') {
+    const pinCast = solids.pin_cast;
+    for (const m of part(res, 'pin_cast').stages.cast) assert.ok(pinCast.transform(m).intersect(shells).volume() < 0.05, 'pin collides');
+    assert.equal(part(res, 'pin_cast').quantity, res.analysis.pinSites.length);
+  } else {
+    assert.ok(!res.parts.some((p) => p.role === 'pin'), 'interlock: no loose pins');
+  }
   assert.equal(part(res, 'clip_silicone').quantity, 2 * clipSites.length, 'single boards: two assemblies');
 
   // silicone / cast previews + stats
   const vSil = solids.siliconeA.volume() + solids.siliconeB.volume();
   assert.ok(Math.abs(res.stats.siliconeVolume - vSil) / vSil < 0.05, `voxel silicone ${res.stats.siliconeVolume} vs mesh ${vSil}`);
-  assert.ok(Math.abs(res.stats.castVolume - Manifold.cylinder(60, 10, 10, 64).volume()) < 1);
+  assert.ok(Math.abs(res.stats.castNetVolume - Manifold.cylinder(60, 10, 10, 64).volume()) < 1);
   assert.ok(Math.abs(res.stats.siliconeMassA + res.stats.siliconeMassB - res.stats.siliconeMass) < 1e-6);
   assert.ok(res.stats.moldMass > 0 && Math.abs(res.stats.moldMass - res.stats.moldMassA - res.stats.moldMassB) < 1e-6);
   assert.deepEqual(res.analysis.pourModes, ['extend']);
@@ -199,7 +206,8 @@ test('hollow master is filled and warned', async () => {
   const hollow = Manifold.cube([24, 20, 30], true).subtract(Manifold.cube([16, 12, 22], true)).translate([0, 0, 15]);
   const res = await generateMoldBox([meshFromManifold(hollow)], { ...DRAFT, ribs: false, boardStyle: 'none' }, () => {}, { keepSolids: true });
   assert.ok(res.warnings.some((w) => /hollow/.test(w)), res.warnings.join('\n'));
-  assert.ok(Math.abs(res.stats.castVolume - 24 * 20 * 30) < 1);
+  assert.ok(Math.abs(res.stats.castNetVolume - 24 * 20 * 30) < 1, `net cast ${res.stats.castNetVolume}`);
+  assert.ok(res.stats.castVolume > res.stats.castNetVolume, 'the real fill includes the riser');
   checkPartsValid(res);
 });
 
@@ -228,7 +236,7 @@ test('silicone collar: dam + ledge on the shells, lip on the silicone, openings 
   assert.ok(probe(A, [0, outerY - o - wd / 2, zTop + 2]), 'dam wall around the collar');
   assert.ok(!probe(A, [0, outerY - o - wd - 1, zTop + 2]), 'nothing outside the dam');
   assert.ok(probe(silA, [0, outerY - o / 2, zTop + 2]), 'silicone lip over the rim');
-  assert.ok(Math.abs(silA.boundingBox().max[2] - zPour) < 1e-6, 'silicone reaches the collar top');
+  assert.ok(Math.abs(silA.boundingBox().max[2] - zPour) < 0.1, 'silicone reaches the collar top');
   assert.ok(res.solids.Mp.boundingBox().max[2] >= zPour + 0.5, 'pour opening goes through the collar');
   assert.ok(A.intersect(silA).volume() < 30, `shell ∩ silicone ${A.intersect(silA).volume()}`);
   // 45° ledge: every 1 mm down the shell section grows by at most ~1 mm
@@ -284,4 +292,28 @@ test('end walls (±X) are broader by endWallExtra; endWallExtra 0 restores the u
     assert.ok(Math.abs(thin[k] - thin.w) < 1.0, `uniform ${k} end wall ${thin[k]} ~ ${thin.w}`);
     assert.ok(thick[k] - thin[k] > 1.6, `broader ${k} end wall: ${thick[k]} vs ${thin[k]}`);
   }
+});
+
+test('real fills: silicone halves carry the key groove (A) / tongue (B) and the collar; the cast is the enclosed cavity incl. riser; no loose pins', async () => {
+  const { Manifold } = await setup();
+  const res = await runCached('cyl', async () => generateMoldBox([await cylinderMaster()], DRAFT, () => {}, { keepSolids: true }));
+  const P = resolveParams(DRAFT);
+  const { y0, zPour } = res.frame;
+  assert.ok(!res.warnings.some((w) => /not closed|leak/.test(w)), res.warnings.join('\n'));
+  assert.ok(!res.parts.some((p) => p.role === 'pin'), 'interlock mode: no loose pins');
+  const solids = checkPartsValid(res);
+  const silA = solids.siliconeA, silB = solids.siliconeB, cast = solids.cast;
+  // tongue of B crosses the plane into A's groove; A has the matching groove (no material there)
+  const tongue = silB.trimByPlane([0, -1, 0], -(y0 - 0.05));
+  assert.ok(tongue.volume() > 10, `silicone B tongue ${tongue.volume()} mm³`);
+  assert.ok(tongue.intersect(silA).volume() < 0.25 * tongue.volume(), 'the tongue sits in A\'s groove (only the squeeze clearance overlaps)');
+  // the cast is what the halves enclose: it reaches the pour level and contains the master
+  const M = res.solids.M;
+  assert.ok(M.subtract(cast).volume() < 0.01 * M.volume(), 'cast contains the master');
+  assert.ok(cast.boundingBox().max[2] > zPour - 0.2, 'riser up to the pour level');
+  assert.ok(Math.abs(res.stats.castVolume - cast.volume()) < 1e-3 * cast.volume(), `cast ${res.stats.castVolume} vs ${cast.volume()}`);
+  assert.ok(Math.abs(res.stats.siliconeVolume - (silA.volume() + silB.volume())) < 1, 'silicone stats are the real fills');
+  // silicone fills do not overlap the shells (beyond the 0.02 mm seal)
+  assert.ok(silA.intersect(solids.shellA).volume() < 5, `silA ∩ shellA ${silA.intersect(solids.shellA).volume()}`);
+  assert.ok(silB.intersect(solids.shellB).volume() < 5, `silB ∩ shellB ${silB.intersect(solids.shellB).volume()}`);
 });

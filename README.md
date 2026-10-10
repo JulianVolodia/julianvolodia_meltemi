@@ -10,7 +10,7 @@ pour in it.** Runs entirely in the browser (three.js + manifold-3d WASM, nothing
 as a Node CLI / library. Plain ES modules, no build step.
 
 ```
-master (STL)  ──►  printed mold box (shells A/B, parting board, pins, clips)  ──►  pour silicone
+master (STL)  ──►  printed mold box (shells A/B, parting board(s), clips)  ──►  pour silicone
                                                                                      │
 finished casts ◄── pour wax / resin / plaster ◄── printed support (mother mold) ◄────┘
 ```
@@ -38,14 +38,22 @@ real materials (wax, PU resin, food-safe silicone, plaster) that a printer can't
 * **Mold box from a master** (STL, several masters at once — e.g. three candles in one box):
   * conformal two-part **mother-mold shells** A/B at a constant silicone thickness, straight-pull
     demoldable, flat printable plinth, open top for the pour;
-  * **flanges** with **alignment pin** holes, printed tapered **pins** (long set for the silicone
-    pour, short set for casting) and **C-clips** with lead-in chamfers (two sandwich sizes);
+  * **flanges** that **key into each other** — tapered diamond **pegs** on shell A (and board B)
+    lock into matching **sockets** in shell B (and board A), no loose pins (loose dowel pins remain
+    an option) — and **C-clips** with lead-in chamfers (two sandwich sizes);
+  * a **silicone collar** at the pour end (lip over the shell rim inside a dam, on a 45° stepped
+    ledge) so the skin hangs from the rim and the pour-face seam is clamped; **broader end walls**
+    (±X) where the flanges and clips load the shell;
   * external **ribs / feet** so each half stands upright and lies flat on its back;
   * **parting board** (double-sided, one pour for both halves — or two single-sided boards) that
     carries the half-reliefs of the master plus a **tongue-and-groove key ridge** around each cavity
     so the silicone halves self-register and seal;
   * **pour opening** (flat top face extended, or a funnel sprue at the highest point), optional
     **wick channel** for candles, automatic **air vents** above trapped pockets;
+  * **real fills**: each silicone half is computed as exactly the space its shell and board
+    enclose (so the key groove/tongue, collar and channels appear as poured), the cast as exactly
+    what the two silicone halves enclose up to the pour level (riser included); masses come from
+    these fills, and a pocket that is not closed is reported as a leak;
   * mass of every printed part, silicone volume + A/B mix weights, cast weight.
 * **Support for an existing silicone form** (mode B): import the outer surface of a form you
   already have and get clamped mother-mold halves (optionally a windowed, lighter cage) with feet.
@@ -92,17 +100,20 @@ masters in the mold frame), `report.json` (parameters, masses, timings, warnings
 
 ## The physical workflow
 
-1. **Print** the kit: shells A and B (upright, as exported), the parting board, clips and pins.
+1. **Print** the kit: shells A and B (upright, as exported), the parting board(s) and clips.
 2. **Release**: coat every surface that will touch silicone (shell insides, board, reliefs) with a
    release agent; seal FDM layer lines first if you want a glossy cast.
-3. **Assemble for the silicone pour**: shell A | parting board | shell B, push the **long pins**
-   through flanges and board, snap the **silicone clips** onto the flanges.
+3. **Assemble for the silicone pour**: press shell A's pegs into board A's sockets and board B's
+   pegs into shell B's sockets (or A | board | B for the double board), snap the **silicone
+   clips** onto the flanges.
 4. **Pour silicone** (mixed by weight, degassed if possible) into the open top in a thin stream
-   into the lowest point; fill to the rim. The board's reliefs form each half's cavity and key.
+   into the lowest point; fill to the top of the collar dam. The board's reliefs form each half's
+   cavity and key.
 5. **Cure** (Shore 10A–30A platinum silicone: typically 4–24 h), unclip, pull the halves off
    (±Y) and **remove the board**. Each shell still holds its silicone half — leave them in.
-6. **Close for casting**: put the two shells (with silicone) back together face to face with the
-   **short pins** and the **cast clips**. The keys lock the silicone halves together.
+6. **Close for casting**: put the two shells (with silicone) back together face to face — shell
+   A's pegs into shell B's sockets — and clamp with the **cast clips**. The keys lock the silicone
+   halves together; the collars sit on the rims.
 7. **Wick / sprue**: thread the wick through the wick channel, seal the bottom with putty.
 8. **Pour** wax / resin / plaster into the opening, top up as it shrinks, let it set.
 9. **Demold**: unclip, open the shells, peel the silicone off the cast. Repeat from step 6.
@@ -118,7 +129,8 @@ All lengths in mm. The panel and `--list-params` show everything; these matter m
 | `siliconeThickness` | 5 | 4–6 | thicker for soft silicone or big parts, 3 for tiny parts |
 | `wallThickness` | 2.4 | 2.4 (6 perimeters × 0.4) | the shell is backed by ribs, it needs little wall |
 | `flangeWidth` / `flangeThickness` | 14 / 4 | 12–18 / 3–5 | wider flanges → more room for pins and clips |
-| `pinDiameter` / `pinClearance` | 3 / 0.25 | 3 / 0.2–0.3 | tune clearance to your printer |
+| `registration` | interlock | interlock | `pins` switches back to loose dowel pins |
+| `pegSize` / `pegHeight` / `pegClearance` | 7 / 3 / 0.25 | 6–8 / 2.5–3.5 / 0.2–0.35 | tune clearance to your printer |
 | `clipInterference` | 0.15 | 0.1–0.3 | how much tighter than the sandwich the clip gap is |
 | `boardStyle` | double | double | `single` = two flat-printable boards, two pours |
 | `keys`, `keyWidth`, `keyHeight` | on, 1.8, 1.4 | on | tongue & groove between the silicone halves |

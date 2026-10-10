@@ -49,7 +49,11 @@ export const PARAM_SCHEMA = [
     group: 'Flanges, pins & clips', items: [
       { key: 'flangeWidth', label: 'Flange width', type: 'number', min: 6, max: 40, step: 0.5, unit: 'mm' },
       { key: 'flangeThickness', label: 'Flange thickness', type: 'number', min: 2, max: 10, step: 0.2, unit: 'mm' },
-      { key: 'pinsPerSide', label: 'Pins per side', type: 'number', min: 0, max: 8, step: 1 },
+      { key: 'registration', label: 'Registration', type: 'select', options: { interlock: 'Interlocking pegs & sockets (no loose pins)', pins: 'Loose dowel pins' }, help: 'Interlock: tapered diamond pegs on shell A (and board B) key into sockets in shell B (and board A)' },
+      { key: 'pinsPerSide', label: 'Registration points per side', type: 'number', min: 0, max: 8, step: 1 },
+      { key: 'pegSize', label: 'Peg size (diagonal)', type: 'number', min: 3, max: 14, step: 0.5, unit: 'mm' },
+      { key: 'pegHeight', label: 'Peg height', type: 'number', min: 1, max: 8, step: 0.5, unit: 'mm' },
+      { key: 'pegClearance', label: 'Socket clearance', type: 'number', min: 0, max: 1, step: 0.05, unit: 'mm' },
       { key: 'pinDiameter', label: 'Pin diameter', type: 'number', min: 1.5, max: 8, step: 0.1, unit: 'mm' },
       { key: 'pinClearance', label: 'Pin hole clearance', type: 'number', min: 0, max: 1, step: 0.05, unit: 'mm' },
       { key: 'clipsPerSide', label: 'Clips per side', type: 'number', min: 0, max: 10, step: 1 },
@@ -125,6 +129,10 @@ export const DEFAULTS = {
   flangeWidth: 14,
   flangeThickness: 4,
   pinsPerSide: 3,
+  registration: 'interlock',
+  pegSize: 7,
+  pegHeight: 3,
+  pegClearance: 0.25,
   pinDiameter: 4,
   pinClearance: 0.4, // FDM holes print undersize
   clipsPerSide: 4, // keep clip pitch <= ~50 mm against silicone head pressure

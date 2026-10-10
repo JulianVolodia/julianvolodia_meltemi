@@ -13,6 +13,7 @@
 // Core module: manifold comes from wasm.js (no bare imports).
 import { mf } from '../wasm.js';
 import { planeSlice, planeExtrude, rect2 } from '../frame.js';
+import { siteRadius } from './pins.js';
 
 const BIG = 1e5;
 const NOTCH_CLEAR = 0.5; // side clearance of a bottom-clip notch
@@ -161,7 +162,7 @@ export function buildFlangeGeometry(ctx) {
   // ---- bottom clips (in notches of the two flange strips) ------------------------------------
   const clipSites = [];
   const cw = P.clipWidth;
-  const rHole = (P.pinDiameter + P.pinClearance) / 2;
+  const rHole = siteRadius(P);
   const notchH = P.clipWall + NOTCH_EXTRA;
   const nBottom = Math.max(0, Math.round(Number(P.clipsBottom) || 0));
   let bottomUsed = false;
@@ -202,7 +203,7 @@ export function buildFlangeGeometry(ctx) {
   let clipLo = zFloor + cw;
   if (bottomUsed) clipLo = Math.max(clipLo, zFloor + notchH + P.clipJaw + cw / 2 + 1);
   const clipHi = zTop - cw;
-  const lay = layoutPinsAndClips(nP, nC, [pinLo, pinHi], [clipLo, clipHi], cw / 2 + P.pinDiameter, cw + 2);
+  const lay = layoutPinsAndClips(nP, nC, [pinLo, pinHi], [clipLo, clipHi], cw / 2 + 2 * siteRadius(P), cw + 2);
   if (lay.clips.length < nC || lay.pins.length < nP) {
     warnings.push(`Flange height allows ${lay.clips.length} clip(s) and ${lay.pins.length} pin(s) per side (asked ${nC} and ${nP}).`);
   }

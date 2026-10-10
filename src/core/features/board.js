@@ -20,6 +20,7 @@ import {
   planeExtrude, planeSlice, trimZ, rect2, rod,
   mat4Identity, mat4Translation, mat4AxisAngle, mat4Mul,
 } from '../frame.js';
+import { registrationMode, pegSolid, socketSolid } from './pins.js';
 
 const E = 0.01; // overlap so unions of touching parts never rely on coincident faces
 const BIG = 1e5;
@@ -90,6 +91,23 @@ export function boardOutline2D(ctx) {
     Fb = Fb.subtract(CrossSection.circle(6, 48).translate([(xa + xb) / 2, zc]));
   }
   return Fb;
+}
+
+/**
+ * Registration features of a board face at yFace: loose-pin mode -> through holes over
+ * [yA, yB]; interlock mode -> 'socket' (blind, or through when depth is null) or 'peg'.
+ * Returns {sub, add} solids (either may be null).
+ */
+function registration(ctx, { yA, yB, yFace, kind, depth = null }) {
+  const { Manifold } = mf();
+  const P = ctx.P;
+  const sites = ctx.pinSites || [];
+  if (!sites.length) return { sub: null, add: null };
+  if (registrationMode(P) === 'pins') return { sub: pinHoles(ctx, yA, yB), add: null };
+  const many = (list) => (list.length === 1 ? list[0] : Manifold.union(list));
+  if (kind === 'peg') return { sub: null, add: many(sites.map((s) => pegSolid(s, yFace, P))) };
+  const d = depth ?? (yB - yFace);
+  return { sub: many(sites.map((s) => socketSolid(s, yFace, P, d))), add: null };
 }
 
 /** Union of Y-axis pin holes through [yA, yB] at ctx.pinSites. */
@@ -178,15 +196,17 @@ export function buildBoards(ctx) {
   const ident = mat4Identity();
 
   if (style === 'single') {
-    const holes = pinHoles(ctx, y0 - T - 1, y0 + T + 1);
+    // registration: shell A's pegs enter board A's (through) sockets; board B's pegs enter shell B
+    const regA = registration(ctx, { yA: y0 - T - 1, yB: y0 + T + 1, yFace: y0, kind: 'socket', depth: T + 1 });
+    const regB = registration(ctx, { yA: y0 - T - 1, yB: y0 + T + 1, yFace: y0, kind: 'peg' });
     // board A: slab behind the plane on the B side, relief A protrudes into y < y0, ridge on face y0
-    const slabA = subtractAll(planeExtrude(Fb, y0, y0 + T), [holes]);
+    const slabA = subtractAll(planeExtrude(Fb, y0, y0 + T), [regA.sub]);
     const ridgeA = keys ? planeExtrude(ring, y0 - kh, y0 + E) : null;
-    const boardA = check(unionAll([slabA, reliefA, ridgeA]), 'board A');
+    const boardA = check(unionAll([slabA, reliefA, ridgeA, regA.add]), 'board A');
     // board B: slab on the A side, relief B protrudes into y > y0, groove in face y0
     const grooveB = keys ? planeExtrude(grooveRing, y0 - gDepth, y0 + E) : null;
-    const slabB = subtractAll(planeExtrude(Fb, y0 - T, y0), [holes, grooveB]);
-    const boardB = check(unionAll([slabB, reliefB]), 'board B');
+    const slabB = subtractAll(planeExtrude(Fb, y0 - T, y0), [regB.sub, grooveB]);
+    const boardB = check(unionAll([slabB, reliefB, regB.add]), 'board B');
     const RA = mat4AxisAngle([1, 0, 0], -Math.PI / 2); // -Y -> +Z (relief A up)
     const RB = mat4AxisAngle([1, 0, 0], Math.PI / 2); //  +Y -> +Z (relief B up)
     return done([
@@ -197,15 +217,22 @@ export function buildBoards(ctx) {
 
   // 'double' (default)
   const yFa = y0 - T / 2, yFb = y0 + T / 2;
-  const holes = pinHoles(ctx, yFa - 1, yFb + 1);
+  // registration: shell A's pegs enter blind sockets in face A; pegs on face B enter shell B
+  const sockDepth = P.pegHeight + 0.5;
+  if (registrationMode(P) === 'interlock' && sockDepth > T - 0.8) {
+    warnings.push(`Board ${T} mm is thin for ${sockDepth.toFixed(1)} mm deep peg sockets; use a thicker board or lower pegs.`);
+  }
+  const regFa = registration(ctx, { yA: yFa - 1, yB: yFb + 1, yFace: yFa, kind: 'socket', depth: Math.min(sockDepth, T - 0.8) });
+  const regFb = registration(ctx, { yA: yFa - 1, yB: yFb + 1, yFace: yFb, kind: 'peg' });
   const groove = keys ? planeExtrude(grooveRing, yFb - gDepth, yFb + E) : null;
-  const slab = subtractAll(planeExtrude(Fb, yFa, yFb), [holes, groove]);
+  const slab = subtractAll(planeExtrude(Fb, yFa, yFb), [regFa.sub, groove]);
   const ridge = keys ? planeExtrude(ring, yFa - kh, yFa + E) : null;
   const board = check(unionAll([
     slab,
     reliefA.translate([0, -T / 2, 0]),
     reliefB.translate([0, T / 2, 0]),
     ridge,
+    regFb.add,
   ]), 'board');
   const printMatrix = mat4Translation(0, 0, -board.boundingBox().min[2]);
   return done([

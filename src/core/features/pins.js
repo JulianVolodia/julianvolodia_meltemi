@@ -46,3 +46,53 @@ export function pinPrintMatrix() {
   return mat4Identity();
 }
 
+
+// ---------------------------------------------------------------------------------------------
+// Interlocking registration (default): tapered pegs on one flange face, matching sockets in the
+// other (and in the parting boards), so the halves key into each other without loose pins.
+// The peg section is a diamond (square rotated 45°) in the parting plane: its lower faces are
+// at 45°, so pegs sticking out of an upright-printed flange need no supports, and the diamond
+// centres the halves in both X and Z. Sides taper by PEG_TAPER for an easy, self-locating fit.
+// ---------------------------------------------------------------------------------------------
+
+const PEG_TAPER = Math.tan((12 * Math.PI) / 180);
+
+export function registrationMode(P) {
+  return P.registration === 'pins' ? 'pins' : 'interlock';
+}
+
+/** Keep-out radius (plane coords) of one registration site, for layout and clearance checks. */
+export function siteRadius(P) {
+  return registrationMode(P) === 'pins'
+    ? (P.pinDiameter + P.pinClearance) / 2
+    : P.pegSize / 2 + P.pegClearance;
+}
+
+/**
+ * Diamond-section tapered prism along +Y starting at yStart: base half-diagonal a (at yStart),
+ * shrinking by PEG_TAPER per mm, length len. Used for pegs (grow = 0) and sockets (grow = clearance).
+ */
+function diamondPrism(site, yStart, a, len) {
+  const { CrossSection } = mf();
+  const top = Math.max(0.4, a - len * PEG_TAPER);
+  const d = CrossSection.ofPolygons([[[a, 0], [0, a], [-a, 0], [0, -a]]]);
+  // extrude along local +Z, then local z -> +Y (rotate about X by -90°: (x,y,z) -> (x, z, -y))
+  return d.extrude(len, 0, 0, [top / a, top / a]).rotate([-90, 0, 0]).translate([site[0], yStart, site[1]]);
+}
+
+/** Peg on a face at yFace, protruding +Y by pegHeight (its base overlaps the face by 0.05 mm). */
+export function pegSolid(site, yFace, P) {
+  const a = P.pegSize / 2;
+  const back = 0.05;
+  return diamondPrism(site, yFace - back, a + back * PEG_TAPER, P.pegHeight + back);
+}
+
+/**
+ * Socket for a peg whose base sits at yFace: same taper, + pegClearance all round, depth
+ * `depth` from the face (pegHeight + 0.5 for a blind socket, or through the part).
+ */
+export function socketSolid(site, yFace, P, depth) {
+  const a = P.pegSize / 2 + P.pegClearance;
+  const front = 0.05;
+  return diamondPrism(site, yFace - front, a + front * PEG_TAPER, depth + front);
+}

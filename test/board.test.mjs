@@ -14,7 +14,7 @@ const y0 = 0, d1 = 5, w = 2.4, zTop = 62, zFloor = -7.4;
 
 /** Synthetic mold context around a vertical cylinder "candle" r=10, z 0..60. */
 function makeCtx(Manifold, params = {}) {
-  const P = resolveParams({ boardStyle: "double", siliconeThickness: 5, keyOffset: 2.25, keyWidth: 1.8, keyHeight: 1.4, keyClearance: 0.2, boardThickness: 4, ...params });
+  const P = resolveParams({ boardStyle: "double", siliconeThickness: 5, keyOffset: 2.25, keyWidth: 1.8, keyHeight: 1.4, keyClearance: 0.2, boardThickness: 4, registration: 'pins', ...params });
   const tf = P.flangeThickness;
   const master = Manifold.cylinder(60, 10, 10, 64);
   const pour = Manifold.cylinder(zTop + 1 - 59.5, 10, 10, 64).translate([0, 0, 59.5]);
@@ -237,4 +237,25 @@ test('board style none', async () => {
   const res = buildBoards(ctx);
   assert.deepEqual(res.boards, []);
   assert.deepEqual(res.shellOffsetY, { A: 0, B: 0 });
+});
+
+test('interlock registration: boards carry sockets (A face) and pegs (B face) instead of pin holes', async () => {
+  const { Manifold } = await setup();
+  const ctx = makeCtx(Manifold, { registration: 'interlock', boardThickness: 5 });
+  const { boards } = buildBoards(ctx);
+  const board = boards[0].solid;
+  const P = ctx.P, T = P.boardThickness, y0 = ctx.y0;
+  for (const [x, z] of ctx.pinSites) {
+    const probe = (y) => board.intersect(Manifold.cube([0.4, 0.2, 0.4], true).translate([x, y, z])).volume() > 1e-3;
+    assert.ok(!probe(y0 - T / 2 + 0.5), `socket open in face A at ${x},${z}`);
+    assert.ok(probe(y0 + T / 2 - 0.3), `board material behind the blind socket at ${x},${z}`);
+    assert.ok(probe(y0 + T / 2 + P.pegHeight / 2), `peg on face B at ${x},${z}`);
+  }
+  const single = buildBoards(makeCtx(Manifold, { registration: 'interlock', boardStyle: 'single', boardThickness: 5 })).boards;
+  const bA = single.find((b) => b.id === 'boardA').solid, bB = single.find((b) => b.id === 'boardB').solid;
+  for (const [x, z] of ctx.pinSites) {
+    const at = (m, y) => m.intersect(Manifold.cube([0.4, 0.2, 0.4], true).translate([x, y, z])).volume() > 1e-3;
+    assert.ok(!at(bA, y0 + 1) && !at(bA, y0 + T - 0.3), 'board A: through socket');
+    assert.ok(at(bB, y0 + P.pegHeight / 2), 'board B: peg towards shell B');
+  }
 });

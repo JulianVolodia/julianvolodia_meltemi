@@ -195,3 +195,18 @@ test/*.test.mjs        node:test suites
 | Silicone volume from booleans of 1 M-tri meshes is slow | counted on the voxel grid |
 | Hollow (shelled) masters | only positive-volume components are used |
 | Later / roadmap | silicone pre-load recess on the board (anti-flash), crush bead / V-chamfer seal, block-style back-down printed shells, draft angle, hybrid exact-near-surface SDF, mode B from master + d1, pry slots |
+
+## 8. Later additions
+
+* **Silicone collar** (`collar.js`): the silicone continues `collarHeight` above the rim and
+  `collarOverhang` past the shell wall; each shell gets a dam and a 0.5 mm-step 45° ledge; flanges
+  and boards reach the collar top. **Broader end walls**: `endWallExtra` tapers in over
+  `endWallBlend` at the ±X ends (applied in the outer distance field, x-only).
+* **Interlocking registration** (default, `pins.js`): diamond-section tapered pegs (45° lower
+  faces, prints upright without supports) on flange A / board B face, matching sockets (+clearance)
+  in flange B / board A; the double board has blind sockets on face A and pegs on face B.
+* **Real fills** (`pipeline.js enclosedFill`): silicone half X = connected regions of a box minus
+  (shell X ∪ its board) that touch neither the box sides nor bottom (open only at the pour level);
+  cast = the same for the two silicone halves. Contact faces are overlapped by 0.02 mm first:
+  exactly-touching faces stay separate in exact booleans and would leave a zero-thickness sheet
+  linking the pocket to the peg sockets. A pocket that does not close is reported as a leak.

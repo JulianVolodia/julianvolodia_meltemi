@@ -15,6 +15,7 @@
 //   * every position is pushed out of the keep-out zones of clips and pins.
 import { mf } from '../wasm.js';
 import { box } from '../frame.js';
+import { siteRadius } from './pins.js';
 
 const EPS_OVERLAP = 0.02; // ribs overlap the flange plate slightly -> robust union
 
@@ -103,7 +104,7 @@ function keepOuts(ctx) {
   for (const p of ctx.pinSites || []) {
     const [px, pz] = p;
     if (pz < zLo - 5 || pz > zHi + 5) continue;
-    const m = (P.pinDiameter + P.pinClearance) / 2 + 1 + half;
+    const m = siteRadius(P) + 1 + half;
     out.push([px - m, px + m]);
   }
   return out;
