@@ -38,6 +38,8 @@ export const PARAM_SCHEMA = [
       { key: 'collar', label: 'Silicone collar at the pour end', type: 'boolean', help: 'A silicone lip over the shell rim (kołnierz): the skin hangs from it in the support, and it seals the pour face' },
       { key: 'collarHeight', label: 'Collar height', type: 'number', min: 2, max: 20, step: 0.5, unit: 'mm' },
       { key: 'collarOverhang', label: 'Collar beyond shell wall', type: 'number', min: 0, max: 15, step: 0.5, unit: 'mm', help: 'How far the lip reaches past the shell outer wall (the dam stands outside it)' },
+      { key: 'endWallExtra', label: 'Extra end-wall thickness (±X)', type: 'number', min: 0, max: 10, step: 0.2, unit: 'mm', help: 'Added to the shell wall (and collar dam) at the left/right ends, where the end flanges, pins and clips load the mold' },
+      { key: 'endWallBlend', label: 'End-wall blend length', type: 'number', min: 1, max: 60, step: 1, unit: 'mm', help: 'Over this distance from each end the extra thickness tapers in, so the side faces stay smooth' },
       { key: 'base', label: 'Base', type: 'select', options: { plinth: 'Flat printable plinth', none: 'Conformal bottom' } },
       { key: 'baseExtra', label: 'Extra floor', type: 'number', min: 0, max: 20, step: 0.5, unit: 'mm' },
       { key: 'cageClearance', label: 'Support clearance', type: 'number', min: 0, max: 3, step: 0.05, unit: 'mm', help: 'Gap between an existing form and its support (mode B / cage)' },
@@ -117,6 +119,8 @@ export const DEFAULTS = {
   collar: true,
   collarHeight: 5,
   collarOverhang: 3,
+  endWallExtra: 2.4, // end walls (±X) = 2 x wallThickness by default
+  endWallBlend: 12,
   cageClearance: 0.5,
   flangeWidth: 14,
   flangeThickness: 4,

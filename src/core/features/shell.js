@@ -29,7 +29,7 @@ export const CAV_LEVEL = 0.3;
  */
 export function shellGrid(min, max, P, { d1 = P.siliconeThickness, extra = 0 } = {}) {
   const q = P.q || { maxVoxels: 4e6, minVoxel: 0.4 };
-  const base = d1 + extra + P.wallThickness + (P.baseExtra || 0);
+  const base = d1 + extra + P.wallThickness + Math.max(0, Number(P.endWallExtra) || 0) + (P.baseExtra || 0);
   let h = q.minVoxel;
   let grid = null;
   for (let it = 0; it < 6; it++) {
@@ -77,15 +77,37 @@ export function buildShellFields(Msdf, P, y0, opts = {}) {
     phiCavA = sweepMin(phi, grid, 1, +1);
     phiCavB = sweepMin(phi, grid, 1, -1);
   }
+  // Wall thickness per voxel column: w, plus endWallExtra at the ±X ends of the silicone
+  // envelope, tapering linearly to 0 over endWallBlend (x-only, so it commutes with the sweeps).
+  const wallX = endWallProfile(Msdf, P, d1, grid, w);
   const outer = (cav) => {
     const out = new Float32Array(cav.length);
-    for (let v = 0; v < cav.length; v++) out[v] = cav[v] - w;
+    const nx = grid.nx;
+    for (let v = 0; v < cav.length; v++) out[v] = cav[v] - wallX[v % nx];
     if (P.base !== 'none') zSuffixMinInPlace(out, grid);
     return out;
   };
   const phiOutA = outer(phiCavA);
   const phiOutB = phiCavB === phiCavA ? phiOutA : outer(phiCavB);
   return { grid, phiCavA, phiCavB, phiOutA, phiOutB, d1 };
+}
+
+/**
+ * Wall thickness for each grid column index i: w + e * clamp(1 - dx / L, 0, 1), where dx is
+ * the distance of x from the nearer X-extreme of the silicone envelope (bbox of Msdf ± d1).
+ */
+export function endWallProfile(Msdf, P, d1, grid, w) {
+  const e = Math.max(0, Number(P.endWallExtra) || 0);
+  const L = Math.max(1e-6, Number(P.endWallBlend) || 12);
+  const bb = Msdf.boundingBox();
+  const x0 = bb.min[0] - d1, x1 = bb.max[0] + d1;
+  const out = new Float64Array(grid.nx);
+  for (let i = 0; i < grid.nx; i++) {
+    const x = grid.origin[0] + grid.h * i;
+    const dx = Math.min(x - x0, x1 - x);
+    out[i] = w + e * Math.min(1, Math.max(0, 1 - dx / L));
+  }
+  return out;
 }
 
 /** In-place running minimum along -Z: out[k] = min(out[k..nz-1]) (plinth sweep). */

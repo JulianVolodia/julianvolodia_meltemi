@@ -266,3 +266,22 @@ test('silicone collar: the flange plate / board backs the collar pocket and dam 
     }
   }
 });
+
+test('end walls (±X) are broader by endWallExtra; endWallExtra 0 restores the uniform wall', async () => {
+  const { CrossSection } = await setup();
+  const measure = async (extra) => {
+    const res = await generateMoldBox([await cylinderMaster()], { ...DRAFT, endWallExtra: extra, collar: false, ribs: false }, () => {}, { keepSolids: true });
+    const { y0, zTop, zFloor } = res.frame;
+    const P = resolveParams({ ...DRAFT, endWallExtra: extra });
+    const z = (zTop + zFloor) / 2, yp = y0 - P.flangeThickness - 1.5; // just behind the flange plate
+    const line = CrossSection.square([400, 0.2]).translate([-200, yp - 0.1]);
+    const cav = trimSide(res.solids.cavA, 'A', y0).slice(z).intersect(line).bounds();
+    const shell = checkPartsValid(res).shellA.slice(z).intersect(line).bounds();
+    return { right: shell.max[0] - cav.max[0], left: cav.min[0] - shell.min[0], w: P.wallThickness };
+  };
+  const thin = await measure(0), thick = await measure(2.4);
+  for (const k of ['left', 'right']) {
+    assert.ok(Math.abs(thin[k] - thin.w) < 1.0, `uniform ${k} end wall ${thin[k]} ~ ${thin.w}`);
+    assert.ok(thick[k] - thin[k] > 1.6, `broader ${k} end wall: ${thick[k]} vs ${thin[k]}`);
+  }
+});

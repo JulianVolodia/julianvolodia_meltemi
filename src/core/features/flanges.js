@@ -141,7 +141,7 @@ export function buildFlangeGeometry(ctx) {
   // narrow flange, a tall collar or a wide overhang the pocket would be open there: add the dam's
   // footprint on the plane (+2 mm) to the flange outline (a no-op when F already covers it).
   if (ctx.collar2D && ctx.zPour > zTop) {
-    const wd = Number(P.wallThickness) || 0;
+    const wd = (Number(P.wallThickness) || 0) + Math.max(0, Number(P.endWallExtra) || 0); // dam incl. broader ends
     const strip = ctx.collar2D.collar.offset(wd, 'Round', 2, 64)
       .intersect(CrossSection.square([2 * BIG, 0.02]).translate([-BIG, y0 - 0.01]));
     if (!strip.isEmpty()) {
