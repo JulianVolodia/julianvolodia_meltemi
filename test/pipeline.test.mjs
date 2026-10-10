@@ -3,7 +3,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setup } from './helpers.mjs';
 import { manifoldFromMesh, meshFromManifold, transformMesh } from '../src/core/meshio.js';
-import { trimSide, trimZ } from '../src/core/frame.js';
+import { trimSide, trimZ, planeExtrude } from '../src/core/frame.js';
+import { socketSolid } from '../src/core/features/pins.js';
 import { resolveParams } from '../src/core/params.js';
 import { buildClip, clipPose } from '../src/core/features/clips.js';
 import { layoutPinsAndClips, placeAvoiding, crossingsAtZ } from '../src/core/features/flanges.js';
@@ -150,6 +151,22 @@ test("moldbox boardStyle 'double': one board, shells at -T/2 / +T/2, valid parts
   const sB = solids.shellB.transform(part(res, 'shellB').stages.silicone[0]);
   assert.ok(sA.intersect(solids.board).volume() < 1 && sB.intersect(solids.board).volume() < 1, 'board sandwiched without overlap');
   assert.equal(part(res, 'clip_silicone').quantity, res.analysis.clipSites.length);
+});
+
+test('interlock: a 6 mm flange shrinks the pegs so the sockets stay inside the flange edge', async () => {
+  const res = await generate([await cylinderMaster()], { ...DRAFT, flangeWidth: 6 }, () => {}, { keepSolids: true });
+  const P0 = resolveParams({ ...DRAFT, flangeWidth: 6 });
+  assert.ok(res.analysis.pegSize < P0.pegSize, `effective peg size ${res.analysis.pegSize}`);
+  assert.ok(res.warnings.some((w) => /Peg size reduced/.test(w)), res.warnings.join('; '));
+  const P = { ...P0, pegSize: res.analysis.pegSize };
+  const y0 = res.frame.y0, tf = P.flangeThickness;
+  const inside = planeExtrude(res.solids.flange2D.offset(-0.8, 'Round'), y0 - 1, y0 + tf + 2);
+  for (const s of res.analysis.pinSites) {
+    assert.ok(socketSolid(s, y0, P, tf + 1).subtract(inside).volume() < 1e-6, `socket at ${s} leaves < 0.8 mm of flange`);
+  }
+  const solids = checkPartsValid(res);
+  const pegs = solids.shellA.trimByPlane([0, 1, 0], y0 + 1e-3);
+  assert.ok(pegs.volume() > 1 && pegs.intersect(solids.shellB).volume() < 1e-3, 'smaller pegs still key into shell B');
 });
 
 test("moldbox boardStyle 'none' and the cage option produce valid parts", async () => {
@@ -316,4 +333,14 @@ test('real fills: silicone halves carry the key groove (A) / tongue (B) and the 
   // silicone fills do not overlap the shells (beyond the 0.02 mm seal)
   assert.ok(silA.intersect(solids.shellA).volume() < 5, `silA ∩ shellA ${silA.intersect(solids.shellA).volume()}`);
   assert.ok(silB.intersect(solids.shellB).volume() < 5, `silB ∩ shellB ${silB.intersect(solids.shellB).volume()}`);
+});
+
+test('enclosedFill: a closed container gives its interior, an open one is reported as leaking (null)', async () => {
+  const { Manifold } = await setup();
+  const { enclosedFill } = await import('../src/core/pipeline.js');
+  const cup = Manifold.cube([20, 20, 20], true).subtract(Manifold.cube([16, 16, 20], true).translate([0, 0, 2])); // open top
+  const fill = enclosedFill([cup], [-12, -12, -12], [12, 12, 10]);
+  assert.ok(fill && Math.abs(fill.volume() - 16 * 16 * (10 - 0.05 + 8)) < 1, `fill ${fill && fill.volume()}`);
+  const leaky = cup.subtract(Manifold.cylinder(30, 1, 1, 16).rotate([0, 90, 0]).translate([-15, 0, 0])); // hole through the walls
+  assert.equal(enclosedFill([leaky], [-12, -12, -12], [12, 12, 10]), null);
 });

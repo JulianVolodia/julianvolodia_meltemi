@@ -109,7 +109,7 @@ const FILL_SEAL = 0.02; // mm: contact faces are overlapped by this much when co
  * smaller than minVol (mm³) are dropped (clearance slivers). Null when nothing is enclosed —
  * i.e. the container leaks.
  */
-function enclosedFill(walls, lo, hi, minVol = 20) {
+export function enclosedFill(walls, lo, hi, minVol = 20) {
   // keep the box faces off the walls' faces: a box top exactly at the dam/collar top would be
   // resolved by symbolic perturbation and could leave a zero-thickness bridge over the dam
   hi = [hi[0], hi[1], hi[2] - 0.05];
@@ -139,7 +139,8 @@ function registrationFor(ctx, side) {
     return { add: null, sub: unionAll(holes) };
   }
   if (side === 'A') return { add: unionAll(sites.map((s) => pegSolid(s, y0, P))), sub: null };
-  return { add: null, sub: unionAll(sites.map((s) => socketSolid(s, y0, P, tf + 1))) };
+  // through the flange plate, but no deeper (it would notch ribs/shell material behind it)
+  return { add: null, sub: unionAll(sites.map((s) => socketSolid(s, y0, P, tf + 0.05))) };
 }
 
 /** Final shell (or cage) half: flange-applied base [-> windows] ∪ ribs − pin holes − wick − cav − Mp. */
@@ -529,6 +530,7 @@ async function run(inputs, P, onProgress, opts, mode) {
         vents: analysis.vents,
         siliconeTraps: analysis.siliconeTraps,
         pinSites: ctx.pinSites,
+        pegSize: ctx.P.pegSize,
         clipSites: ctx.clipSites,
       },
     };

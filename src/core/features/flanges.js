@@ -13,7 +13,7 @@
 // Core module: manifold comes from wasm.js (no bare imports).
 import { mf } from '../wasm.js';
 import { planeSlice, planeExtrude, rect2 } from '../frame.js';
-import { siteRadius } from './pins.js';
+import { siteRadius, registrationMode } from './pins.js';
 
 const BIG = 1e5;
 const NOTCH_CLEAR = 0.5; // side clearance of a bottom-clip notch
@@ -131,6 +131,17 @@ export function buildFlangeGeometry(ctx) {
   const { P, y0, zTop, zFloor } = ctx;
   const f = P.flangeWidth;
   const warnings = [];
+  // interlock: a socket (half-diagonal pegSize/2 + clearance) sits 0.45 f from the hull of the
+  // outline and must keep >= 0.8 mm of flange on both sides, or it breaks out of the flange edge
+  // (a leak path in the silicone stage) and into the shell wall
+  if (registrationMode(P) === 'interlock') {
+    const aMax = 0.45 * f - 0.8 - (P.pegClearance || 0);
+    if (P.pegSize / 2 > aMax) {
+      const ns = Math.max(2, Math.floor(2 * aMax * 10) / 10);
+      warnings.push(`Peg size reduced from ${P.pegSize} to ${ns} mm so the sockets keep 0.8 mm of a ${f} mm flange (widen the flange for bigger pegs).`);
+      P.pegSize = ns;
+    }
+  }
   const outline2D = planeSlice(ctx.outerA, y0).add(planeSlice(ctx.outerB, y0));
   if (outline2D.isEmpty()) throw new Error('flanges: the shells do not reach the parting plane');
   const hullO = outline2D.hull();
