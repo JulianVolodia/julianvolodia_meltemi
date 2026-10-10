@@ -248,13 +248,14 @@ async function run(inputs, P, onProgress, opts, mode) {
       yBackA: null, yBackB: null,
     };
     await step('Flanges, pins & clips', 0.62, () => {
+      // collar outline first: the flange plate must back the collar pocket and its dam at the plane
+      ctx.collar2D = zPour > zTop ? collarOutline2D(ctx) : null;
       const fl = buildFlangeGeometry(ctx);
       warnings.push(...fl.warnings);
       Object.assign(ctx, { outline2D: fl.outline2D, flange2D: fl.flange2D, pinSites: fl.pinSites, clipSites: fl.clipSites });
       ctx.shellA = own(applyFlange(sh.shellA, ctx, 'A'));
       ctx.shellB = own(applyFlange(sh.shellB, ctx, 'B'));
       // collar dam + 45° ledge (before the back planes are measured: the dam may stick out)
-      ctx.collar2D = zPour > zTop ? collarOutline2D(ctx) : null;
       if (ctx.collar2D) {
         ctx.collarVoid = own(collarVoid(ctx));
         for (const side of ['A', 'B']) {

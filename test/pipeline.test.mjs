@@ -241,3 +241,28 @@ test('silicone collar: dam + ledge on the shells, lip on the silicone, openings 
   const fA = checkPartsValid(flat).shellA;
   assert.ok(fA.boundingBox().max[2] <= flat.frame.zTop + 1e-6, 'no collar: rim at zTop');
 });
+
+test('silicone collar: the flange plate / board backs the collar pocket and dam at the parting plane even when the rounded flange corner recedes (narrow flange, wide overhang)', async () => {
+  const { Manifold } = await setup();
+  for (const boardStyle of ['single', 'double']) {
+    const res = await generateMoldBox([await cylinderMaster()], { ...DRAFT, boardStyle, flangeWidth: 8, collarOverhang: 10 }, () => {}, { keepSolids: true });
+    const { zTop, zPour, y0 } = res.frame;
+    const solids = checkPartsValid(res);
+    for (const side of ['A', 'B']) {
+      const sh = part(res, `shell${side}`).stages.silicone[0];
+      const bid = boardStyle === 'single' ? `board${side}` : 'board';
+      const board = solids[bid].transform(part(res, bid).stages.silicone[0]);
+      const toBoard = side === 'A' ? 0.5 : -0.5;
+      const other = side === 'A' ? 'B' : 'A';
+      // collar pocket (silicone lip) and dam, pushed 0.5 mm across the plane, must land inside the board
+      const lip = trimZ(solids[`silicone${side}`], zTop + 0.2, zPour - 0.2).transform(sh);
+      const dam = trimZ(solids[`shell${side}`], zTop + 0.2, zPour - 0.2).transform(sh);
+      const yPlane = y0 + sh[13];
+      for (const [name, s] of [['lip', lip], ['dam', dam]]) {
+        const pushed = trimSide(s.translate([0, toBoard, 0]), other, yPlane);
+        const open = pushed.subtract(board).volume();
+        assert.ok(open < 1, `${boardStyle} ${side}: ${name} face at the parting plane not backed by the board (${open} mm³ open)`);
+      }
+    }
+  }
+});

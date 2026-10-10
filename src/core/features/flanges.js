@@ -136,6 +136,19 @@ export function buildFlangeGeometry(ctx) {
   // the flange plate also closes the collar pocket at the parting plane (up to zPour)
   const zClip = rect2(-BIG, zFloor, BIG, Math.max(zTop, ctx.zPour ?? zTop));
   let F = hullO.offset(f, 'Round', 2, 64).intersect(zClip);
+  // The collar pocket and its dam must be backed by the plate / board at the parting plane. The
+  // rounded flange corner recedes above zTop (by f - sqrt(f² - h²) at the collar top), so with a
+  // narrow flange, a tall collar or a wide overhang the pocket would be open there: add the dam's
+  // footprint on the plane (+2 mm) to the flange outline (a no-op when F already covers it).
+  if (ctx.collar2D && ctx.zPour > zTop) {
+    const wd = Number(P.wallThickness) || 0;
+    const strip = ctx.collar2D.collar.offset(wd, 'Round', 2, 64)
+      .intersect(CrossSection.square([2 * BIG, 0.02]).translate([-BIG, y0 - 0.01]));
+    if (!strip.isEmpty()) {
+      const b = strip.bounds();
+      F = F.add(rect2(b.min[0] - 2, zTop - 1, b.max[0] + 2, ctx.zPour));
+    }
+  }
 
   // obstacles on the plane: silicone faces and the cast cavity (wick rods below the floor)
   let obst = null;
