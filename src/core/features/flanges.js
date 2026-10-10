@@ -133,7 +133,8 @@ export function buildFlangeGeometry(ctx) {
   const outline2D = planeSlice(ctx.outerA, y0).add(planeSlice(ctx.outerB, y0));
   if (outline2D.isEmpty()) throw new Error('flanges: the shells do not reach the parting plane');
   const hullO = outline2D.hull();
-  const zClip = rect2(-BIG, zFloor, BIG, zTop);
+  // the flange plate also closes the collar pocket at the parting plane (up to zPour)
+  const zClip = rect2(-BIG, zFloor, BIG, Math.max(zTop, ctx.zPour ?? zTop));
   let F = hullO.offset(f, 'Round', 2, 64).intersect(zClip);
 
   // obstacles on the plane: silicone faces and the cast cavity (wick rods below the floor)

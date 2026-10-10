@@ -18,6 +18,7 @@ import { shellGrid, buildShellFields, buildShells, regionBetween, CAV_LEVEL } fr
 import { buildFlangeGeometry, applyFlange } from './features/flanges.js';
 import { buildRibs, ribPositions } from './features/ribs.js';
 import { buildBoards } from './features/board.js';
+import { collarOutline2D, buildCollarFrame, collarVoid, collarSilicone } from './features/collar.js';
 import { buildClip, clipPose, clipPrintMatrix } from './features/clips.js';
 import { buildPin, pinLengths, pinPose, pinHole, pinPrintMatrix } from './features/pins.js';
 import { cutWindows } from './features/windows.js';
@@ -122,6 +123,7 @@ function finishHalf(ctx, side, base, { windows = false, wick = null } = {}) {
   const holes = pinHolesFor(ctx, side);
   if (holes) s = s.subtract(holes);
   if (wick) s = s.subtract(wick);
+  if (ctx.collarVoid) s = s.subtract(ctx.collarVoid);
   const cav = side === 'A' ? ctx.cavA : ctx.cavB;
   if (cav) s = s.subtract(cav);
   if (ctx.Mp) s = s.subtract(ctx.Mp);
@@ -164,6 +166,8 @@ async function run(inputs, P, onProgress, opts, mode) {
     const T = P.boardThickness;
     const zTop = support ? bb.max[2] : bb.max[2] + P.topExtension;
     const zFloor = bb.min[2] - d1 - w - (P.baseExtra || 0);
+    // silicone collar at the pour end: the silicone continues collarHeight above the rim
+    const zPour = !support && P.collar ? zTop + Math.max(0, Number(P.collarHeight) || 0) : zTop;
     if (!(y0 > bb.min[1] && y0 < bb.max[1])) warnings.push(`Parting plane y0 = ${y0.toFixed(2)} does not cut the ${support ? 'form' : 'masters'} (partingOffset too large).`);
 
     // ---- 2. channels, vents -----------------------------------------------------------------
@@ -173,7 +177,7 @@ async function run(inputs, P, onProgress, opts, mode) {
     await step('Generating channels and funnel', 0.08, () => {
       if (!support) {
         const info = { modes: [] };
-        const pour = own(buildPourExtensions(M, P, y0, zTop, info));
+        const pour = own(buildPourExtensions(M, P, y0, zPour, info));
         analysis.pourModes = info.modes.map((m) => m.mode);
         Mpour = pour ? own(M.add(pour)) : M;
         if (P.wick) {
@@ -192,13 +196,13 @@ async function run(inputs, P, onProgress, opts, mode) {
       let vents = null;
       if (!support && P.vents) {
         const occ = voxelizeManifold(Mpour, grid);
-        let traps = findAirTraps(occ, grid, { zTop, minDepth: P.ventMinDepth });
+        let traps = findAirTraps(occ, grid, { zTop: zPour, minDepth: P.ventMinDepth });
         if (traps.length > MAX_VENTS) {
           warnings.push(`${traps.length} air traps found; only the ${MAX_VENTS} deepest get vents — consider re-orienting the master.`);
           traps = [...traps].sort((a, b) => b.depth - a.depth).slice(0, MAX_VENTS);
         }
         analysis.vents = traps.map((t) => ({ p: t.p, depth: t.depth }));
-        vents = own(buildVents(traps, P, y0, zTop));
+        vents = own(buildVents(traps, P, y0, zPour));
       }
       Msdf = vents ? own(Mpour.add(vents)) : Mpour;
       Mp = wick ? own(Msdf.add(wick)) : Msdf;
@@ -237,8 +241,9 @@ async function run(inputs, P, onProgress, opts, mode) {
 
     // ---- 5. flanges, pins, clip sites ---------------------------------------------------------
     const ctx = {
-      P, y0, zTop, zFloor, h, warnings, Mp, Msdf,
+      P, y0, zTop, zPour, zFloor, h, warnings, Mp, Msdf,
       cavA: sh.cavA, cavB: sh.cavB, outerA: sh.outerA, outerB: sh.outerB,
+      collar2D: null, collarVoid: null,
       shellA: null, shellB: null, outline2D: null, flange2D: null, pinSites: [], clipSites: [],
       yBackA: null, yBackB: null,
     };
@@ -248,6 +253,20 @@ async function run(inputs, P, onProgress, opts, mode) {
       Object.assign(ctx, { outline2D: fl.outline2D, flange2D: fl.flange2D, pinSites: fl.pinSites, clipSites: fl.clipSites });
       ctx.shellA = own(applyFlange(sh.shellA, ctx, 'A'));
       ctx.shellB = own(applyFlange(sh.shellB, ctx, 'B'));
+      // collar dam + 45° ledge (before the back planes are measured: the dam may stick out)
+      ctx.collar2D = zPour > zTop ? collarOutline2D(ctx) : null;
+      if (ctx.collar2D) {
+        ctx.collarVoid = own(collarVoid(ctx));
+        for (const side of ['A', 'B']) {
+          const frame = buildCollarFrame(ctx, side);
+          if (frame) {
+            const key = side === 'A' ? 'shellA' : 'shellB';
+            ctx[key] = own(ctx[key].add(frame));
+          }
+        }
+      } else if (zPour > zTop) {
+        warnings.push('Could not build the silicone collar (no shell section at the rim); the collar was skipped.');
+      }
       ctx.yBackA = ctx.shellA.boundingBox().min[1];
       ctx.yBackB = ctx.shellB.boundingBox().max[1];
     });
@@ -383,8 +402,11 @@ async function run(inputs, P, onProgress, opts, mode) {
       if (!support) {
         for (const side of ['A', 'B']) {
           const cav = side === 'A' ? sh.cavA : sh.cavB;
-          const solid = own(trimZ(trimSide(cav, side, y0), zFloor, zTop).subtract(Mp));
-          const vVox = side === 'A' ? sil.volA : sil.volB;
+          let solid = own(trimZ(trimSide(cav, side, y0), zFloor, zTop).subtract(Mp));
+          const lip = ctx.collar2D ? own(collarSilicone(ctx, side)) : null;
+          const vLip = lip ? lip.volume() : 0;
+          if (lip) solid = own(solid.add(lip));
+          const vVox = (side === 'A' ? sil.volA : sil.volB) + vLip;
           const p = add(`silicone${side}`, `Silicone half ${side}`, 'silicone', solid, {
             stages: { cast: [I] }, printable: false, density: rhoS, printMatrix: I,
           });
@@ -427,7 +449,7 @@ async function run(inputs, P, onProgress, opts, mode) {
     const out = {
       parts: result.parts,
       stats: result.stats,
-      frame: { y0, zTop, zFloor, bboxMin: [...bb.min], bboxMax: [...bb.max] },
+      frame: { y0, zTop, zPour, zFloor, bboxMin: [...bb.min], bboxMax: [...bb.max] },
       warnings: [...new Set(warnings)],
       instructions,
       analysis: {
@@ -483,12 +505,12 @@ function moldInstructions(parts, P, stats, style, wick, cage, analysis) {
   S.push(`Seal every external flange/board seam and the bottom edge with hot glue, plasticine or vaseline so the silicone cannot leak${wick ? ', and plug the wick hole under the floor (the wick channel connects the cavity to the outside) with a blob of putty' : ''}; stand the box upright on its floor/ribs on a level surface.`);
   const mix = `${fmtG(stats.siliconeMassA)} part A + ${fmtG(stats.siliconeMassB)} part B (ratio ${P.siliconeMixRatio} by weight)`;
   const halves = style === 'single' ? ` — box A needs ${fmtG(stats.siliconeHalves.A)}, box B ${fmtG(stats.siliconeHalves.B)}` : '';
-  S.push(`Weigh ${fmtG(stats.siliconeMass)} of silicone = ${mix}${halves}; mix ~10 % extra for losses. Mix thoroughly, degas if you can, brush a thin detail coat onto the reliefs, then pour in a thin, steady stream into the open top until the silicone reaches the rim.`);
+  S.push(`Weigh ${fmtG(stats.siliconeMass)} of silicone = ${mix}${halves}; mix ~10 % extra for losses. Mix thoroughly, degas if you can, brush a thin detail coat onto the reliefs, then pour in a thin, steady stream into the open top${P.collar ? ` until the silicone fills the collar pocket up to the top of the dam (${Number(P.collarHeight)} mm above the shell rim) — this forms the silicone collar` : ' until the silicone reaches the rim'}.`);
   S.push('Let the silicone cure completely (see its datasheet), then remove clips and pins, pull the shells off along ±Y and peel the parting board(s) out of the silicone halves.');
   if (wick) S.push('Thread the wick through the wick channel (split on the parting plane) and keep it centred and taut with a wick bar or clothes peg across the top opening; seal the hole under the floor with a little putty.');
   S.push(cage
     ? `Put the silicone halves into the support cage halves, join them with the ${qtyOf(parts, 'pin_cast')} short pins and clamp with the ${qtyOf(parts, 'clip_cast')} cast-stage clips.`
-    : `Put the silicone halves back into shell A and shell B, join the halves with the ${qtyOf(parts, 'pin_cast')} short pins and clamp with the ${qtyOf(parts, 'clip_cast')} cast-stage clips.`);
+    : `Put the silicone halves back into shell A and shell B${P.collar ? ' (each collar lip seats on its shell rim inside the dam, so the skin hangs from it and cannot slide down)' : ''}, join the halves with the ${qtyOf(parts, 'pin_cast')} short pins and clamp with the ${qtyOf(parts, 'clip_cast')} cast-stage clips.`);
   const vents = analysis.vents && analysis.vents.length ? ` The ${analysis.vents.length} vent channel(s) let trapped air out — stop when material appears in them.` : '';
   S.push(`Pour ${fmtG(stats.castMass)} of ${castMat.toLowerCase()} (+ ~15 % for top-ups and the riser) through the opening(s) at the top.${vents}`);
   S.push(P.castMaterial === 'wax'

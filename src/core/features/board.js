@@ -71,7 +71,8 @@ export function boardOutline2D(ctx) {
   if (!(extra > 0)) return F;
   const bF = F.bounds();
   // x-range of the flange outline at its top edge (fall back to the full width)
-  const band = F.intersect(rect2(bF.min[0] - 1, ctx.zTop - 1, bF.max[0] + 1, ctx.zTop + 1));
+  const zT = Math.max(ctx.zTop, ctx.zPour ?? ctx.zTop); // top of the silicone (collar top when present)
+  const band = F.intersect(rect2(bF.min[0] - 1, zT - 1, bF.max[0] + 1, zT + 1));
   let xa = bF.min[0], xb = bF.max[0];
   if (!band.isEmpty()) {
     const b = band.bounds();
@@ -80,12 +81,12 @@ export function boardOutline2D(ctx) {
   if (!(xb - xa > 1)) return F;
   const r = Math.max(0.05, Math.min(extra * 0.9, 10, (xb - xa) / 2 - 0.5));
   const rounded = CrossSection.square([xb - xa - 2 * r, extra + 1])
-    .translate([xa + r, ctx.zTop - r - 1])
+    .translate([xa + r, zT - r - 1])
     .offset(r, 'Round', 2, 48);
-  const handle = rounded.intersect(rect2(xa, ctx.zTop - E, xb, ctx.zTop + extra));
+  const handle = rounded.intersect(rect2(xa, zT - E, xb, zT + extra));
   let Fb = F.add(handle);
   if (extra >= 14) {
-    const zc = Math.max(ctx.zTop + 7, ctx.zTop + extra - 8);
+    const zc = Math.max(zT + 7, zT + extra - 8);
     Fb = Fb.subtract(CrossSection.circle(6, 48).translate([(xa + xb) / 2, zc]));
   }
   return Fb;
@@ -105,7 +106,7 @@ function pinHoles(ctx, yA, yB) {
 function reliefHalf(ctx, side) {
   const { Mp, y0 } = ctx;
   const half = side === 'A' ? Mp.trimByPlane([0, -1, 0], -(y0 + E)) : Mp.trimByPlane([0, 1, 0], y0 - E);
-  return trimZ(half, ctx.zFloor, ctx.zTop + 0.01);
+  return trimZ(half, ctx.zFloor, Math.max(ctx.zTop, ctx.zPour ?? ctx.zTop) + 0.01);
 }
 
 function subtractAll(base, cutters) {

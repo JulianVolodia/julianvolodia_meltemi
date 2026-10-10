@@ -84,9 +84,10 @@ test('moldbox (cylinder r10 h60, default single boards): valid parts and geometr
   assert.ok(A.boundingBox().max[1] <= y0 + 1e-6, 'shell A stays on y <= y0');
   assert.ok(B.boundingBox().min[1] >= y0 - 1e-6, 'shell B stays on y >= y0');
   assert.ok(Math.abs(A.boundingBox().min[2] - res.frame.zFloor) < 1e-6, 'stands on zFloor');
-  assert.ok(A.boundingBox().max[2] <= res.frame.zTop + 1e-6, 'open rim at zTop');
-  // the top is open: a slice just below the rim has the cavity hole
-  assert.ok(A.slice(res.frame.zTop - 0.5).area() < trimSide(res.solids.outerA, 'A', y0).slice(res.frame.zTop - 0.5).area() - 50);
+  assert.ok(A.boundingBox().max[2] <= res.frame.zPour + 1e-6, 'nothing above the collar dam (zPour)');
+  // the top is open: just below the rim the shell does not reach into the cavity
+  const zr = res.frame.zTop - 0.5;
+  assert.ok(A.slice(zr).intersect(trimSide(res.solids.cavA, 'A', y0).slice(zr)).area() < 1, 'cavity open at the rim');
 
   // boards (single): reliefs cover Mp exactly per half, slabs behind the plane
   const bA = solids.boardA, bB = solids.boardB;
@@ -208,4 +209,35 @@ test('wick: the wick channel is a leak path through the floor, the instructions 
   assert.ok(res.solids.Mp.boundingBox().min[2] < res.frame.zFloor - 0.5, 'wick channel exits below the floor');
   // ... so the sealing step must tell the user to plug it for the silicone pour
   assert.ok(res.instructions.some((s) => /plug the wick hole/.test(s)), res.instructions.join('\n'));
+});
+
+test('silicone collar: dam + ledge on the shells, lip on the silicone, openings through it; collar:false keeps the flat rim', async () => {
+  const { Manifold } = await setup();
+  const res = await runCached('cyl', async () => generateMoldBox([await cylinderMaster()], DRAFT, () => {}, { keepSolids: true }));
+  const P = resolveParams(DRAFT);
+  const { zTop, zPour, y0 } = res.frame;
+  assert.ok(Math.abs(zPour - zTop - P.collarHeight) < 1e-9, 'collar height');
+  const solids = checkPartsValid(res);
+  const A = solids.shellA, silA = solids.siliconeA;
+  const probe = (m, p) => m.intersect(Manifold.cube([0.3, 0.3, 0.3], true).translate(p)).volume() > 0.01;
+  // shell A outer wall along -Y at x = 0, measured below the ledge
+  const outerY = trimSide(res.solids.outerA, 'A', y0).boundingBox().min[1];
+  const o = P.collarOverhang, wd = P.wallThickness;
+  assert.ok(!probe(A, [0, outerY - o / 2, zTop + 2]), 'overhang zone above the rim is free for silicone');
+  assert.ok(probe(A, [0, outerY - o / 2, zTop - 0.5]), 'ledge supports the overhang');
+  assert.ok(probe(A, [0, outerY - o - wd / 2, zTop + 2]), 'dam wall around the collar');
+  assert.ok(!probe(A, [0, outerY - o - wd - 1, zTop + 2]), 'nothing outside the dam');
+  assert.ok(probe(silA, [0, outerY - o / 2, zTop + 2]), 'silicone lip over the rim');
+  assert.ok(Math.abs(silA.boundingBox().max[2] - zPour) < 1e-6, 'silicone reaches the collar top');
+  assert.ok(res.solids.Mp.boundingBox().max[2] >= zPour + 0.5, 'pour opening goes through the collar');
+  assert.ok(A.intersect(silA).volume() < 30, `shell ∩ silicone ${A.intersect(silA).volume()}`);
+  // 45° ledge: every 1 mm down the shell section grows by at most ~1 mm
+  for (let dz = 0.5; dz < o + wd; dz += 1) {
+    const w1 = A.slice(zTop - dz).bounds(), w2 = A.slice(zTop - dz - 1).bounds();
+    assert.ok(w2.min[1] <= w1.min[1] + 1.05, `overhang at z ${zTop - dz}: ${w1.min[1]} vs ${w2.min[1]}`);
+  }
+  const flat = await generateMoldBox([await cylinderMaster()], { ...DRAFT, collar: false, boardStyle: 'none' }, () => {}, { keepSolids: true });
+  assert.equal(flat.frame.zPour, flat.frame.zTop);
+  const fA = checkPartsValid(flat).shellA;
+  assert.ok(fA.boundingBox().max[2] <= flat.frame.zTop + 1e-6, 'no collar: rim at zTop');
 });
