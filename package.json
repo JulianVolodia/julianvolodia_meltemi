@@ -8,7 +8,8 @@
     "test": "node --test \"test/**/*.test.mjs\"",
     "serve": "node cli/serve.mjs",
     "cli": "node cli/moldbox.mjs",
-    "test:ui": "node test/ui-smoke.mjs"
+    "test:ui": "node test/ui-smoke.mjs",
+    "build:pages": "node cli/build-pages.mjs"
   },
   "devDependencies": {
     "fflate": "0.8.2",

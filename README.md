@@ -57,6 +57,12 @@ real materials (wax, PU resin, food-safe silicone, plaster) that a printer can't
 
 ## Quick start
 
+**Hosted:** https://julianvolodia.github.io/julianvolodia_meltemi/ (GitHub Pages, deployed by
+`.github/workflows/pages.yml` on every push to `main`; everything runs in your browser, nothing is
+uploaded).
+
+Locally:
+
 ```bash
 npm install            # manifold-3d, three, fflate (no other dependencies)
 npm run serve          # -> http://localhost:8080  (static server, cli/serve.mjs)
@@ -64,7 +70,11 @@ npm run serve          # -> http://localhost:8080  (static server, cli/serve.mjs
 
 Open the page, click **Demo candles** (or drop your STL), check orientation (Z = pour direction,
 top = opening), press **Generate**, then **Export ZIP**. Any static host works too (GitHub Pages
-etc.): off-localhost the page loads pinned library versions from jsDelivr.
+etc.): off-localhost the page loads pinned library versions from jsDelivr. `npm run build:pages`
+stages exactly what gets published (`index.html`, `src/`, `docs/img/`) into `_site/`.
+
+GitHub Pages one-time setup: repository **Settings → Pages → Source: GitHub Actions**, and keep
+`main` as the default branch (the `github-pages` environment only deploys the default branch).
 
 Command line:
 
