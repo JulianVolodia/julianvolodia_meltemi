@@ -214,11 +214,3 @@ For a full end-to-end check run the CLI on the demo and open `out/candles/README
 * Clip force is not computed — tune `clipInterference` for your material.
 * No "cut mold" option (one-piece silicone block slit open with a knife) yet.
 * Open questions and a review brief for stronger models: **[docs/ADVISOR_BRIEF.md](docs/ADVISOR_BRIEF.md)**.
-
-## Credits & licenses
-
-Meltemi Mold Studio is MIT-licensed. It builds on
-[manifold-3d](https://github.com/elalish/manifold) (Apache-2.0),
-[three.js](https://threejs.org) (MIT) and [fflate](https://github.com/101arrowz/fflate) (MIT).
-Designed from an analysis of footage of a commercial printed-mold-box workflow; no code or assets
-from that product are used.
